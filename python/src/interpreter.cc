@@ -1,18 +1,31 @@
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <pybind11/numpy.h>
-#include <pybind11/pybind11.h>
+#include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
+#include <nanobind/stl/list.h>
+#include <nanobind/stl/map.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/vector.h>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
+#include <vector>
 
-namespace py = pybind11;
+namespace py = nanobind;
+
+#define PY_ARRAY_UNIQUE_SYMBOL triton_interpreter_ARRAY_API
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#include <numpy/arrayobject.h>
 
 namespace {
 
-struct npy_half {
+struct triton_half {
   uint16_t value;
 };
 
@@ -272,18 +285,18 @@ constexpr uint32_t ToFloatBits(uint16_t h) {
   }
 }
 
-npy_half npy_float_to_half(float f) {
+triton_half npy_float_to_half(float f) {
   return {FromFloatBits(BitCast<uint32_t>(f))};
 }
 
-float npy_half_to_float(npy_half h) {
+float npy_half_to_float(triton_half h) {
   return BitCast<float>(ToFloatBits(h.value));
 }
 
 template <>
-npy_half atomic_fadd<npy_half>(npy_half *loc, npy_half value,
-                               std::memory_order order) {
-  npy_half old_value;
+triton_half atomic_fadd<triton_half>(triton_half *loc, triton_half value,
+                                     std::memory_order order) {
+  triton_half old_value;
 
   const std::lock_guard<std::mutex> lock(atomic_op_guard);
   old_value = *loc;
@@ -554,6 +567,45 @@ private:
   size_t itemsize;
 };
 
+PyArrayObject *require_ndarray(const py::object &obj) {
+  if (!PyArray_Check(obj.ptr())) {
+    throw std::invalid_argument("expected a numpy ndarray");
+  }
+  return reinterpret_cast<PyArrayObject *>(obj.ptr());
+}
+
+bool numpy_dtypes_equal(const py::object &a, const py::object &b) {
+  py::module_ np = py::module_::import_("numpy");
+  py::object da = np.attr("dtype")(a);
+  py::object db = np.attr("dtype")(b);
+  int r = PyObject_RichCompareBool(da.ptr(), db.ptr(), Py_EQ);
+  if (r == -1)
+    throw py::python_error();
+  return r == 1;
+}
+
+template <typename T> py::object numpy_scalar_type_obj() {
+  py::module_ np = py::module_::import_("numpy");
+  if constexpr (std::is_same_v<T, int32_t>)
+    return np.attr("int32");
+  else if constexpr (std::is_same_v<T, uint32_t>)
+    return np.attr("uint32");
+  else if constexpr (std::is_same_v<T, int64_t>)
+    return np.attr("int64");
+  else if constexpr (std::is_same_v<T, uint64_t>)
+    return np.attr("uint64");
+  else if constexpr (std::is_same_v<T, float>)
+    return np.attr("float32");
+  else if constexpr (std::is_same_v<T, double>)
+    return np.attr("float64");
+  else if constexpr (std::is_same_v<T, triton_half>)
+    return np.attr("float16");
+}
+
+template <typename T> bool numpy_dtype_matches(const py::object &dtype_obj) {
+  return numpy_dtypes_equal(dtype_obj, numpy_scalar_type_obj<T>());
+}
+
 // This is a workaround because explicit template parameter list for lambdas is
 // a C++20 extension:
 // auto try_make_op = [&]<typename T>() {
@@ -563,7 +615,7 @@ private:
 //   }
 // };
 template <RMWOp Op> struct OpCreator {
-  pybind11::dtype dtype;
+  py::object dtype;
   const uint64_t *ptr;
   const void *val;
   void *ret;
@@ -573,25 +625,16 @@ template <RMWOp Op> struct OpCreator {
   std::unique_ptr<AtomicOp> &atomic_op;
 
   template <typename T> void create() {
-    if (!atomic_op && dtype.is(pybind11::dtype::of<T>())) {
+    if (!atomic_op && numpy_dtype_matches<T>(dtype)) {
       atomic_op = std::make_unique<AtomicRMWOp<T, Op>>(ptr, val, ret, mask,
                                                        numel, order);
     }
   }
 };
 
-template <> template <> void OpCreator<RMWOp::FADD>::create<npy_half>() {
-  if (!atomic_op && dtype.char_() == 'e') { // float16
-    // workaround until https://github.com/pybind/pybind11/issues/4061 is
-    // implemented
-    atomic_op = std::make_unique<AtomicRMWOp<npy_half, RMWOp::FADD>>(
-        ptr, val, ret, mask, numel, order);
-  }
-};
-
 template <RMWOp Op, typename... SupportedDTypes>
 std::unique_ptr<AtomicOp>
-makeAtomicRMWOp(pybind11::dtype dtype, const uint64_t *ptr, const void *val,
+makeAtomicRMWOp(py::object dtype, const uint64_t *ptr, const void *val,
                 void *ret, const bool *mask, size_t numel,
                 std::memory_order order) {
   // Iterate over all supported data types, make one that matches, and return
@@ -609,17 +652,18 @@ makeAtomicRMWOp(pybind11::dtype dtype, const uint64_t *ptr, const void *val,
 
 } // namespace
 
-void init_triton_interpreter(py::module &&m) {
-  using ret = py::return_value_policy;
+void init_triton_interpreter(py::module_ &m) {
+  if (_import_array() < 0)
+    throw py::python_error();
 
-  py::enum_<MemSemantic>(m, "MEM_SEMANTIC", py::module_local())
+  py::enum_<MemSemantic>(m, "MEM_SEMANTIC")
       .value("ACQUIRE_RELEASE", MemSemantic::ACQUIRE_RELEASE)
       .value("ACQUIRE", MemSemantic::ACQUIRE)
       .value("RELEASE", MemSemantic::RELEASE)
       .value("RELAXED", MemSemantic::RELAXED)
       .export_values();
 
-  py::enum_<RMWOp>(m, "RMW_OP", py::module_local())
+  py::enum_<RMWOp>(m, "RMW_OP")
       .value("ADD", RMWOp::ADD)
       .value("FADD", RMWOp::FADD)
       .value("AND", RMWOp::AND)
@@ -633,69 +677,125 @@ void init_triton_interpreter(py::module &&m) {
       .export_values();
 
   m.def("load",
-        [](py::array_t<uint64_t> ptr, py::array_t<bool> mask, py::array other,
-           py::dtype ret_dtype) -> py::array {
-          int numel = ptr.size();
-          auto shape =
-              std::vector<ptrdiff_t>(ptr.shape(), ptr.shape() + ptr.ndim());
-          py::array ret(ret_dtype, py::array::ShapeContainer{numel});
-          py::array_t<uint64_t> reshaped_ptr = ptr.reshape({numel});
-          py::array_t<bool> reshaped_mask = mask.reshape({numel});
-          py::array reshaped_others = other.reshape({numel});
-          for (size_t i = 0; i < ptr.size(); ++i) {
-            if (reshaped_mask.at(i))
-              memcpy(ret.mutable_data(i),
-                     reinterpret_cast<void *>(reshaped_ptr.at(i)),
-                     ret_dtype.itemsize());
+        [](py::object ptr_obj, py::object mask_obj, py::object other_obj,
+           py::object ret_dtype_obj) -> py::object {
+          py::module_ np = py::module_::import_("numpy");
+          PyArrayObject *ptr_arr = require_ndarray(ptr_obj);
+          require_ndarray(mask_obj);
+          require_ndarray(other_obj);
+
+          npy_intp numel = PyArray_SIZE(ptr_arr);
+          int ndim = PyArray_NDIM(ptr_arr);
+          npy_intp *dims = PyArray_DIMS(ptr_arr);
+
+          py::object ret = np.attr("empty")(py::make_tuple(numel), ret_dtype_obj);
+          PyArrayObject *ret_arr = require_ndarray(ret);
+
+          py::object ptr_1d = np.attr("reshape")(ptr_obj, py::make_tuple(numel));
+          py::object mask_1d = np.attr("reshape")(mask_obj, py::make_tuple(numel));
+          py::object other_1d =
+              np.attr("reshape")(other_obj, py::make_tuple(numel));
+
+          PyArrayObject *rp = require_ndarray(ptr_1d);
+          PyArrayObject *rm = require_ndarray(mask_1d);
+          PyArrayObject *ro = require_ndarray(other_1d);
+
+          auto *ptr_data = static_cast<uint64_t *>(PyArray_DATA(rp));
+          auto *mask_data = static_cast<bool *>(PyArray_DATA(rm));
+          void *other_data = PyArray_DATA(ro);
+          void *ret_data = PyArray_DATA(ret_arr);
+          size_t itemsize = static_cast<size_t>(PyArray_ITEMSIZE(ret_arr));
+
+          for (npy_intp i = 0; i < numel; ++i) {
+            void *dest = static_cast<char *>(ret_data) + i * itemsize;
+            if (mask_data[i])
+              memcpy(dest, reinterpret_cast<void *>(ptr_data[i]), itemsize);
             else
-              memcpy(ret.mutable_data(i), reshaped_others.data(i),
-                     ret_dtype.itemsize());
+              memcpy(dest, static_cast<char *>(other_data) + i * itemsize,
+                     itemsize);
           }
-          return ret.reshape(shape);
+
+          py::list shape_list;
+          for (int i = 0; i < ndim; ++i)
+            shape_list.append(dims[i]);
+          return np.attr("reshape")(ret, shape_list);
         });
 
   m.def("store",
-        [](py::array_t<uint64_t> ptr, py::array value, py::array_t<bool> mask) {
-          int numel = ptr.size();
-          py::array_t<uint64_t> reshaped_ptr = ptr.reshape({numel});
-          py::array_t<int8_t> reshaped_mask = mask.reshape({numel});
-          py::array reshaped_value = value.reshape({numel});
-          for (size_t i = 0; i < ptr.size(); ++i) {
-            if (reshaped_mask.at(i)) {
-              memcpy(reinterpret_cast<void *>(reshaped_ptr.mutable_at(i)),
-                     reshaped_value.data(i), value.dtype().itemsize());
+        [](py::object ptr_obj, py::object value_obj, py::object mask_obj) {
+          py::module_ np = py::module_::import_("numpy");
+          PyArrayObject *ptr_arr = require_ndarray(ptr_obj);
+          PyArrayObject *val_arr = require_ndarray(value_obj);
+          require_ndarray(mask_obj);
+
+          npy_intp numel = PyArray_SIZE(ptr_arr);
+
+          py::object ptr_1d = np.attr("reshape")(ptr_obj, py::make_tuple(numel));
+          py::object mask_1d = np.attr("reshape")(mask_obj, py::make_tuple(numel));
+          py::object val_1d =
+              np.attr("reshape")(value_obj, py::make_tuple(numel));
+
+          PyArrayObject *rp = require_ndarray(ptr_1d);
+          PyArrayObject *rm = require_ndarray(mask_1d);
+          PyArrayObject *rv = require_ndarray(val_1d);
+
+          auto *ptr_data = static_cast<uint64_t *>(PyArray_DATA(rp));
+          auto *mask_data = static_cast<int8_t *>(PyArray_DATA(rm));
+          void *val_data = PyArray_DATA(rv);
+          size_t itemsize = static_cast<size_t>(PyArray_ITEMSIZE(val_arr));
+
+          for (npy_intp i = 0; i < numel; ++i) {
+            if (mask_data[i]) {
+              memcpy(reinterpret_cast<void *>(ptr_data[i]),
+                     static_cast<char *>(val_data) + i * itemsize, itemsize);
             }
           }
         });
 
   m.def("atomic_rmw",
-        [](RMWOp rmw_op, py::array_t<uint64_t> ptr, py::array val,
-           py::array_t<bool> mask, MemSemantic sem) -> py::array {
+        [](RMWOp rmw_op, py::object ptr_obj, py::object val_obj,
+           py::object mask_obj, MemSemantic sem) -> py::object {
+          py::module_ np = py::module_::import_("numpy");
           std::memory_order order = mem_semantic_map[sem];
-          int numel = ptr.size();
-          auto shape =
-              std::vector<ptrdiff_t>(ptr.shape(), ptr.shape() + ptr.ndim());
-          auto ret_dtype = val.dtype();
-          py::array ret(ret_dtype, py::array::ShapeContainer{numel});
-          py::array_t<uint64_t> reshaped_ptr = ptr.reshape({numel});
-          py::array_t<bool> reshaped_mask = mask.reshape({numel});
-          py::array reshaped_val = val.reshape({numel});
-          auto *ptr_data = reshaped_ptr.data();
-          auto *mask_data = reshaped_mask.data();
-          auto *val_data = static_cast<const void *>(reshaped_val.data());
-          auto *ret_data = static_cast<void *>(ret.mutable_data());
+          PyArrayObject *ptr_arr = require_ndarray(ptr_obj);
+          require_ndarray(val_obj);
+          require_ndarray(mask_obj);
+
+          npy_intp numel = PyArray_SIZE(ptr_arr);
+          int ndim = PyArray_NDIM(ptr_arr);
+          npy_intp *dims = PyArray_DIMS(ptr_arr);
+
+          py::object ret_dtype_obj = np.attr("dtype")(val_obj);
+          py::object ret =
+              np.attr("empty")(py::make_tuple(numel), ret_dtype_obj);
+          PyArrayObject *ret_arr = require_ndarray(ret);
+
+          py::object ptr_1d = np.attr("reshape")(ptr_obj, py::make_tuple(numel));
+          py::object mask_1d = np.attr("reshape")(mask_obj, py::make_tuple(numel));
+          py::object val_1d =
+              np.attr("reshape")(val_obj, py::make_tuple(numel));
+
+          PyArrayObject *reshaped_ptr = require_ndarray(ptr_1d);
+          PyArrayObject *reshaped_mask = require_ndarray(mask_1d);
+          PyArrayObject *reshaped_val = require_ndarray(val_1d);
+
+          auto *ptr_data =
+              static_cast<uint64_t *>(PyArray_DATA(reshaped_ptr));
+          auto *mask_data = static_cast<bool *>(PyArray_DATA(reshaped_mask));
+          auto *val_data = static_cast<const void *>(PyArray_DATA(reshaped_val));
+          auto *ret_data = static_cast<void *>(PyArray_DATA(ret_arr));
 
           std::unique_ptr<AtomicOp> atomic_op;
 
 #define MAKE_ATOMIC_RMW_OP(OP_NAME, ...)                                       \
   case OP_NAME:                                                                \
     atomic_op = makeAtomicRMWOp<OP_NAME, __VA_ARGS__>(                         \
-        ret_dtype, ptr_data, val_data, ret_data, mask_data, numel, order);     \
+        ret_dtype_obj, ptr_data, val_data, ret_data, mask_data, numel, order); \
     break;
 
           switch (rmw_op) {
             MAKE_ATOMIC_RMW_OP(RMWOp::ADD, int32_t, uint32_t, int64_t, uint64_t)
-            MAKE_ATOMIC_RMW_OP(RMWOp::FADD, npy_half, float, double)
+            MAKE_ATOMIC_RMW_OP(RMWOp::FADD, triton_half, float, double)
             MAKE_ATOMIC_RMW_OP(RMWOp::AND, int32_t, uint32_t, int64_t, uint64_t)
             MAKE_ATOMIC_RMW_OP(RMWOp::OR, int32_t, uint32_t, int64_t, uint64_t)
             MAKE_ATOMIC_RMW_OP(RMWOp::XOR, int32_t, uint32_t, int64_t, uint64_t)
@@ -712,29 +812,53 @@ void init_triton_interpreter(py::module &&m) {
 #undef MAKE_ATOMIC_RMW_OP
 
           atomic_op->apply();
-          return ret.reshape(shape);
+
+          py::list shape_list;
+          for (int i = 0; i < ndim; ++i)
+            shape_list.append(dims[i]);
+          return np.attr("reshape")(ret, shape_list);
         });
 
   m.def("atomic_cas",
-        [](py::array_t<uint64_t> ptr, py::array &cmp, py::array &val,
-           MemSemantic sem) -> py::array {
+        [](py::object ptr_obj, py::object cmp_obj, py::object val_obj,
+           MemSemantic sem) -> py::object {
+          py::module_ np = py::module_::import_("numpy");
           std::memory_order order = mem_semantic_map[sem];
-          int numel = ptr.size();
-          auto shape =
-              std::vector<ptrdiff_t>(ptr.shape(), ptr.shape() + ptr.ndim());
-          auto ret_dtype = cmp.dtype();
-          py::array ret(ret_dtype, py::array::ShapeContainer{numel});
-          py::array_t<uint64_t> reshaped_ptr = ptr.reshape({numel});
-          py::array reshaped_cmp = cmp.reshape({numel});
-          py::array reshaped_val = val.reshape({numel});
-          auto itemsize = cmp.itemsize();
-          memcpy(static_cast<void *>(ret.mutable_data()),
-                 static_cast<const void *>(reshaped_cmp.data()),
-                 itemsize * numel);
-          AtomicCASOp(reshaped_ptr.data(), ret.mutable_data(),
-                      static_cast<const void *>(reshaped_val.data()), itemsize,
-                      numel, order)
+          PyArrayObject *ptr_arr = require_ndarray(ptr_obj);
+          PyArrayObject *cmp_arr = require_ndarray(cmp_obj);
+          require_ndarray(val_obj);
+
+          npy_intp numel = PyArray_SIZE(ptr_arr);
+          int ndim = PyArray_NDIM(ptr_arr);
+          npy_intp *dims = PyArray_DIMS(ptr_arr);
+
+          py::object ret_dtype_obj = np.attr("dtype")(cmp_obj);
+          py::object ret =
+              np.attr("empty")(py::make_tuple(numel), ret_dtype_obj);
+          PyArrayObject *ret_arr = require_ndarray(ret);
+
+          py::object ptr_1d = np.attr("reshape")(ptr_obj, py::make_tuple(numel));
+          py::object cmp_1d = np.attr("reshape")(cmp_obj, py::make_tuple(numel));
+          py::object val_1d =
+              np.attr("reshape")(val_obj, py::make_tuple(numel));
+
+          PyArrayObject *reshaped_ptr = require_ndarray(ptr_1d);
+          PyArrayObject *reshaped_cmp = require_ndarray(cmp_1d);
+          PyArrayObject *reshaped_val = require_ndarray(val_1d);
+
+          size_t itemsize =
+              static_cast<size_t>(PyArray_ITEMSIZE(reshaped_cmp));
+          memcpy(PyArray_DATA(ret_arr), PyArray_DATA(reshaped_cmp),
+                 itemsize * static_cast<size_t>(numel));
+          AtomicCASOp(reinterpret_cast<const uint64_t *>(PyArray_DATA(reshaped_ptr)),
+                      PyArray_DATA(ret_arr),
+                      static_cast<const void *>(PyArray_DATA(reshaped_val)),
+                      itemsize, static_cast<size_t>(numel), order)
               .apply();
-          return ret.reshape(shape);
+
+          py::list shape_list;
+          for (int i = 0; i < ndim; ++i)
+            shape_list.append(dims[i]);
+          return np.attr("reshape")(ret, shape_list);
         });
 }

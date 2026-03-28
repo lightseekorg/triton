@@ -1,13 +1,13 @@
 from typing import Any
-from triton._C.libproton import proton as libproton
-import triton.runtime.driver as driver
-import triton.language as tl
-import triton
-from triton import MockTensor
+from tokenspeed_triton._C.libproton import proton as libproton
+import tokenspeed_triton.runtime.driver as driver
+import tokenspeed_triton.language as tl
+import tokenspeed_triton
+from tokenspeed_triton import MockTensor
 from .state import exit_state, enter_state, COMPUTE_METADATA_SCOPE_NAME
 
 
-@triton.jit
+@tokenspeed_triton.jit
 def tensor_metric_kernel(device_ptr, device_offset_ptr, size: tl.uint64, metric_id: tl.uint64, metric_value_ptr,
                          metric_value_size: tl.uint64):
     BLOCK_SIZE: tl.constexpr = 128
@@ -26,7 +26,7 @@ def tensor_metric_kernel(device_ptr, device_offset_ptr, size: tl.uint64, metric_
     tl.store(device_offset_ptr, device_offset)
 
 
-@triton.jit
+@tokenspeed_triton.jit
 def scalar_metric_kernel(device_ptr, device_offset_ptr, size: tl.uint64, metric_id: tl.uint64, metric_value: tl.uint64):
     device_offset = tl.load(device_offset_ptr)
     tl.store(device_ptr + device_offset, metric_id)

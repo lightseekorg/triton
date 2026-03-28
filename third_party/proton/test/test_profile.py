@@ -4,19 +4,19 @@ Each test should invoke one or more GPU kernels and check the validity of their 
 """
 
 import torch
-import triton
-import triton.profiler as proton
+import tokenspeed_triton as triton
+import tokenspeed_triton.profiler as proton
 import json
 import pytest
 from typing import NamedTuple
 import pathlib
 import threading
 
-import triton.language as tl
-from triton.profiler.hooks.launch import COMPUTE_METADATA_SCOPE_NAME
-import triton.profiler.hooks.launch as proton_launch
-import triton.profiler.viewer as viewer
-from triton._internal_testing import is_hip, is_cuda, is_blackwell
+import tokenspeed_triton.language as tl
+from tokenspeed_triton.profiler.hooks.launch import COMPUTE_METADATA_SCOPE_NAME
+import tokenspeed_triton.profiler.hooks.launch as proton_launch
+import tokenspeed_triton.profiler.viewer as viewer
+from tokenspeed_triton._internal_testing import is_hip, is_cuda, is_blackwell
 
 
 @pytest.mark.parametrize("context", ["shadow", "python"])

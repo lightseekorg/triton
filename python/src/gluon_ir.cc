@@ -1,6 +1,12 @@
 #include "ir.h"
-#include "pybind11/pybind11.h"
-#include <pybind11/stl.h>
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/function.h>
+#include <nanobind/stl/map.h>
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/pair.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/tuple.h>
+#include <nanobind/stl/vector.h>
 
 #include <optional>
 #include <stdexcept>
@@ -26,7 +32,7 @@
 #include "llvm/Support/MathExtras.h"
 
 using namespace mlir;
-namespace py = pybind11;
+namespace py = nanobind;
 namespace tt = triton;
 namespace ttg = triton::gpu;
 namespace ttng = triton::nvidia_gpu;
@@ -141,12 +147,12 @@ struct GluonLayouts {
   py::handle PartitionedSharedLayout;
 
   GluonLayouts() {
-    auto layouts =
-        py::module::import("triton.experimental.gluon.language._layouts");
-    auto amdLayouts =
-        py::module::import("triton.experimental.gluon.language.amd._layouts");
-    auto blackwellLayouts = py::module::import(
-        "triton.experimental.gluon.language.nvidia.blackwell");
+    auto layouts = py::module_::import_(
+        "tokenspeed_triton.experimental.gluon.language._layouts");
+    auto amdLayouts = py::module_::import_(
+        "tokenspeed_triton.experimental.gluon.language.amd._layouts");
+    auto blackwellLayouts = py::module_::import_(
+        "tokenspeed_triton.experimental.gluon.language.nvidia.blackwell");
     AutoLayout = py::object(layouts.attr("AutoLayout")).release();
     CoalescedLayout = py::object(layouts.attr("CoalescedLayout")).release();
     BlockedLayout = py::object(layouts.attr("BlockedLayout")).release();
@@ -169,12 +175,12 @@ struct GluonLayouts {
     AMDWMMALayout = py::object(amdLayouts.attr("AMDWMMALayout")).release();
     PaddedSharedLayout =
         py::object(layouts.attr("PaddedSharedLayout")).release();
-    auto gfx1250Layouts = py::module::import(
-        "triton.experimental.gluon.language.amd.gfx1250._layouts");
+    auto gfx1250Layouts = py::module_::import_(
+        "tokenspeed_triton.experimental.gluon.language.amd.gfx1250._layouts");
     PartitionedSharedLayout =
         py::object(gfx1250Layouts.attr("PartitionedSharedLayout")).release();
 
-    auto core = py::module::import("triton.language.core");
+    auto core = py::module_::import_("tokenspeed_triton.language.core");
   }
 };
 
@@ -315,17 +321,16 @@ template <typename CondT> void check(CondT &&cond, const char *msg) {
 
 } // namespace
 
-void init_gluon_ir(py::module &&m) {
-  using ret = py::return_value_policy;
+void init_gluon_ir(py::module_ &m) {
+  using ret = py::rv_policy;
 
-  py::enum_<ttng::TMEMLoadReduceModifier>(m, "TMEM_LOAD_REDUCE_MODIFIER",
-                                          py::module_local())
+  py::enum_<ttng::TMEMLoadReduceModifier>(m, "TMEM_LOAD_REDUCE_MODIFIER")
       .value("MIN", ttng::TMEMLoadReduceModifier::MIN)
       .value("MAX", ttng::TMEMLoadReduceModifier::MAX)
       .export_values();
 
-  py::class_<GluonOpBuilder, TritonOpBuilder>(
-      m, "GluonOpBuilder", py::module_local(), py::dynamic_attr())
+  py::class_<GluonOpBuilder, TritonOpBuilder>(m, "GluonOpBuilder",
+                                              py::dynamic_attr())
       .def(py::init<MLIRContext *>())
       .def("get_op_builder", &GluonOpBuilder::getBuilder, ret::reference)
       .def("get_distributed_ty",
@@ -431,8 +436,8 @@ void init_gluon_ir(py::module &&m) {
              // Build Py _TensorMemoryLinearLayout(row_bases, col_bases, shape,
              // repr)
              py::object tmemCls =
-                 py::module::import(
-                     "triton.experimental.gluon.language.nvidia.blackwell")
+                 py::module_::import_(
+                     "tokenspeed_triton.experimental.gluon.language.nvidia.blackwell")
                      .attr("_TensorMemoryLinearLayout");
              auto bases = linearLayout.getBases();
              auto rowBases = bases[mlir::StringAttr::get(ctx, "row")];
@@ -798,7 +803,7 @@ void init_gluon_ir(py::module &&m) {
              return self.create<ttng::TMEMAllocOp>(resultTy, value);
            })
       .def("create_tmem_alloc",
-           [](GluonOpBuilder &self, Type resultTy, py::none value) -> Value {
+           [](GluonOpBuilder &self, Type resultTy, std::nullptr_t value) -> Value {
              return self.create<ttng::TMEMAllocOp>(resultTy, Value{});
            })
       .def("create_tmem_store",
@@ -1139,12 +1144,11 @@ void init_gluon_ir(py::module &&m) {
         context.loadAllAvailableDialects();
 
         GluonOpBuilder builder(&context);
-        auto builderObj =
-            py::cast(&builder, py::return_value_policy::reference);
+        auto builderObj = py::cast(&builder, py::rv_policy::reference);
 
-        auto elementType = elementTyObj.attr("to_ir")(builderObj).cast<Type>();
+        auto elementType = py::cast<Type>(elementTyObj.attr("to_ir")(builderObj));
         auto layoutAttr =
-            layoutObj.attr("_to_ir")(builderObj).cast<Attribute>();
+            py::cast<Attribute>(layoutObj.attr("_to_ir")(builderObj));
         auto ctx = builder.getContext();
         auto memDescTy = builder.getChecked<ttg::MemDescType>(
             shape, elementType, layoutAttr,
@@ -1248,9 +1252,8 @@ void init_gluon_ir(py::module &&m) {
           ctx.loadAllAvailableDialects();
 
           GluonOpBuilder builder(&ctx);
-          auto builderObj =
-              py::cast(&builder, py::return_value_policy::reference);
-          Attribute attr = layout.attr("_to_ir")(builderObj).cast<Attribute>();
+          auto builderObj = py::cast(&builder, py::rv_policy::reference);
+          Attribute attr = py::cast<Attribute>(layout.attr("_to_ir")(builderObj));
 
           if (isa<gluon::AutoEncodingAttr>(attr))
             throw py::value_error("AutoLayout cannot be visualized");
@@ -1268,8 +1271,7 @@ void init_gluon_ir(py::module &&m) {
           }
         });
 
-  py::class_<ttg::WarpSpecializeOp, OpState>(m, "WarpSpecializeOp",
-                                             py::module_local())
+  py::class_<ttg::WarpSpecializeOp, OpState>(m, "WarpSpecializeOp")
       .def("get_default_region", &ttg::WarpSpecializeOp::getDefaultRegion,
            ret::reference)
       .def("get_partition_op_holder",

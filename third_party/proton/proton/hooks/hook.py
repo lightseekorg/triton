@@ -1,8 +1,8 @@
-from triton.compiler import LazyDict
+from tokenspeed_triton.compiler import LazyDict
 from abc import abstractmethod
 from typing import Dict, Any, Optional
 from collections import defaultdict
-import triton.knobs as knobs
+import tokenspeed_triton.knobs as knobs
 
 
 class Hook:

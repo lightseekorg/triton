@@ -23,6 +23,7 @@ This skill performs vendor renaming of Triton specifically for tokenspeed depend
 * Trim unnecessary components to generate smallest wheels
 
 Also note that
+* Activate local Python venv and perform actions inside
 * Don't change any compiler and runtime features or functionality
 * Don't need to fix all Python unit test and example imports
 

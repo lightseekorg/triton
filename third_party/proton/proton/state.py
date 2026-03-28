@@ -1,4 +1,4 @@
-from triton._C.libproton import proton as libproton
+from tokenspeed_triton._C.libproton import proton as libproton
 from .flags import flags
 from functools import wraps
 

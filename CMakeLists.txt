@@ -19,6 +19,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # Options
 option(TRITON_BUILD_PYTHON_MODULE "Build Python Triton bindings" OFF)
 option(TRITON_BUILD_PROTON "Build the Triton Proton profiler" ON)
+option(TRITON_STABLE_ABI "Build with Python Stable ABI (abi3) for Python 3.12+" OFF)
 option(TRITON_BUILD_UT "Build C++ Triton Unit Tests" ON)
 option(TRITON_BUILD_WITH_CCACHE "Build with ccache (if available)" ON)
 option(TRITON_OFFLINE_BUILD "Build without downloading dependencies" OFF)
@@ -267,7 +268,7 @@ function(add_triton_plugin name)
   add_triton_object(${name} ${ARGN})
 endfunction()
 
-# Disable warnings that show up in external code (gtest;pybind11)
+# Disable warnings that show up in external code (gtest;nanobind)
 if(NOT MSVC)
   set(TRITON_DISABLE_EH_RTTI_FLAGS "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti>")
 
@@ -314,7 +315,22 @@ if(TRITON_BUILD_PYTHON_MODULE)
 
   # Python Interpreter is used to run lit tests
   find_package(Python3 REQUIRED COMPONENTS Development.Module Interpreter)
-  find_package(pybind11 CONFIG REQUIRED HINTS "${Python3_SITELIB}")
+  # nanobind expects find_package(Python) which sets Python::Module target
+  # and Python_* variables. Triton uses find_package(Python3) instead.
+  # Bridge the two by aliasing the target and forwarding variables.
+  if(NOT TARGET Python::Module)
+    add_library(Python::Module ALIAS Python3::Module)
+  endif()
+  set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
+  set(Python_SOABI "${Python3_SOABI}")
+  set(Python_VERSION "${Python3_VERSION}")
+  set(Python_INTERPRETER_ID "Python")
+  find_package(nanobind CONFIG REQUIRED)
+  nanobind_build_library(nanobind-static)
+  if(TRITON_STABLE_ABI)
+    target_compile_definitions(nanobind-static PUBLIC Py_LIMITED_API=0x030C0000)
+  endif()
+  target_link_libraries(nanobind-static PRIVATE Python3::Module)
 
   foreach(CODEGEN_BACKEND ${TRITON_CODEGEN_BACKENDS})
     add_subdirectory(third_party/${CODEGEN_BACKEND})
@@ -377,7 +393,7 @@ if(TRITON_BUILD_PYTHON_MODULE)
     LLVMAMDGPUAsmParser
 
     Python3::Module
-    pybind11::headers
+    nanobind-static
 
   )
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64" OR # Linux arm64
@@ -415,12 +431,23 @@ if(TRITON_BUILD_PYTHON_MODULE)
   add_library(triton SHARED ${PYTHON_SRC_PATH}/main.cc
                   ${PYTHON_SRC_PATH}/ir.cc
                   ${PYTHON_SRC_PATH}/gluon_ir.cc
-                  ${CMAKE_CURRENT_SOURCE_DIR}/python/triton/experimental/gsan/src/gsan_testing.cc
+                  ${CMAKE_CURRENT_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src/gsan_testing.cc
                   ${PYTHON_SRC_PATH}/linear_layout.cc
                   ${PYTHON_SRC_PATH}/passes.cc
                   ${PYTHON_SRC_PATH}/interpreter.cc
                   ${PYTHON_SRC_PATH}/llvm.cc
                   ${PYTHON_SRC_PATH}/specialize.cc)
+
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import numpy; print(numpy.get_include())"
+    OUTPUT_VARIABLE TRITON_NUMPY_INCLUDE_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE TRITON_NUMPY_INCLUDE_RESULT
+  )
+  if(NOT TRITON_NUMPY_INCLUDE_RESULT EQUAL "0")
+    message(FATAL_ERROR "Failed to locate NumPy headers (import numpy). Install NumPy in the build Python environment.")
+  endif()
+  target_include_directories(triton PRIVATE ${TRITON_NUMPY_INCLUDE_DIR})
 
   # Link triton with its dependencies
   target_link_libraries(triton PRIVATE ${TRITON_LIBRARIES})

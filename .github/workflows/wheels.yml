@@ -1,17 +1,18 @@
 name: Wheels
+
 on:
+  release:
+    types: [published]
   workflow_dispatch:
   pull_request:
     paths:
       - .github/workflows/wheels.yml
-  schedule:
-    - cron: "0 8 * * *"
 
 permissions: read-all
 
 jobs:
 
-  Build-Wheels:
+  Build-Triton-Wheels:
     timeout-minutes: 180
     runs-on: ${{ matrix.config.runs_on }}
 
@@ -19,69 +20,33 @@ jobs:
       fail-fast: false
       matrix:
         config:
-        - {runs_on: ['self-hosted', 'CPU'], arch: 'x86_64'}
-        - {runs_on: 'ubuntu-22.04-arm', arch: 'aarch64'}
-
-
-    permissions:
-      id-token: write
-      contents: read
+        - {runs_on: 'ubuntu-24.04-32core-x64', arch: 'x86_64'}
+        - {runs_on: 'ubuntu-24.04-32core-arm64', arch: 'aarch64'}
 
     steps:
 
       - name: Prune stale docker containers
         run: |
-          # If cibuildwheel crashes (or, say, is OOM-killed), it leaves behind a
-          # docker container.  Eventually these consume all the disk space on
-          # this machine.
           docker container prune -f
 
       - name: Checkout
         uses: actions/checkout@v6
 
-      # The LATEST_DATE here should be kept in sync with the one in Patch setup.py
-      - id: check-version
-        name: Check latest version
-        run: |
-          export PACKAGE_DATE=$(python3 -m pip install --user --index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/Triton-Nightly/pypi/simple/ --dry-run triton-nightly== |& grep -oP '(?<=, )[0-9\.]+dev[0-9]+(?=\))' | grep -oP '(?<=dev)[0-9]+')
-          export LATEST_DATE=$(TZ=UTC0 git show --quiet --date='format-local:%Y%m%d%H%M%S' --format="%cd")
-          if cmp -s <(echo $PACKAGE_DATE) <(echo $LATEST_DATE); then
-            echo "new_commit=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "new_commit=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.x'
 
       - name: Patch setup.py
-        if: ${{ steps.check-version.outputs.new_commit == 'true' }}
         run: |
           echo "" >> python/setup.cfg
           echo "[build_ext]" >> python/setup.cfg
           echo "base-dir=/project" >> python/setup.cfg
 
       - name: Build wheels
-        if: ${{ steps.check-version.outputs.new_commit == 'true' }}
         run: |
           python --version
-          # Make sure cibuildwheel is updated to latest, this will enable latest python builds
           python3 -m pip install cibuildwheel --upgrade --user
-          # Pass MAX_JOBS=4 because, at time of writing, the VM "only" has 32GB
-          # of RAM and OOMs while building if we give it the default number of
-          # workers (2 * NUM_CPUs).
-          export CIBW_ENVIRONMENT="MAX_JOBS=4 \
-                  TRITON_EXT_ENABLED=ON \
-                  TRITON_BUILD_WITH_CLANG_LLD=1"
-
-          # required to build Python 3.14 with cibuildwheel 2.23.3
-          # todo: Need to update system Python to 3.11 and update cibuildwheel to latest
-
-
-          # many_linux_2_28 image comes with GCC 12.2.1, but not clang.
-          # With this install, it gets clang 16.0.6.
-          export CIBW_BEFORE_ALL="dnf install clang lld -y"
+          export CIBW_BEFORE_ALL="dnf install clang lld zip -y"
 
           if [[ ${{ matrix.config.arch }} == 'x86_64' ]]; then
             export CIBW_MANYLINUX_X86_64_IMAGE="quay.io/pypa/manylinux_2_28_${{ matrix.config.arch }}:latest"
@@ -89,46 +54,203 @@ jobs:
             export CIBW_MANYLINUX_AARCH64_IMAGE="quay.io/pypa/manylinux_2_28_${{ matrix.config.arch }}:latest"
           fi
 
-          export CIBW_BUILD="cp3{10,11,12,13,13t,14,14t}-manylinux_${{ matrix.config.arch }}"
-          export CIBW_SKIP="cp{35,36,37,38,39}-*"
-          export CIBW_ENABLE=cpython-freethreading
+          export CIBW_REPAIR_WHEEL_COMMAND='
+            tmpdir=$(mktemp -d)
+            unzip -q {wheel} -d "$tmpdir/contents"
+            find "$tmpdir/contents" -name "*.so" -exec strip --strip-unneeded {} +
+            find "$tmpdir/contents" -name "*.a" -delete
+            # Remove proton runtime artifacts -- these ship in tokenspeed-proton instead.
+            rm -rf "$tmpdir/contents"/tokenspeed_triton/backends/nvidia/lib/cupti*
+            rm -rf "$tmpdir/contents"/tokenspeed_triton/profiler
+            rm -f "$tmpdir/contents"/tokenspeed_triton/_C/libproton*
+            # Remove test-only shared libraries not needed in the wheel.
+            rm -f "$tmpdir/contents"/tokenspeed_triton/instrumentation/libGPUInstrumentationTestLib*
+            rm -f "$tmpdir/contents"/tokenspeed_triton/plugins/libTritonPluginsTestLib*
+            # Remove versioned symlink copies of the plugin (e.g. .so.23.0git).
+            rm -f "$tmpdir/contents"/tokenspeed_triton/plugins/*.so.2*
+            # Prune RECORD so auditwheel will not try to open deleted files.
+            record=$(find "$tmpdir/contents" -name RECORD)
+            if [ -n "$record" ]; then
+              tmp_record=$(mktemp)
+              while IFS= read -r line; do
+                entry="${line%%,*}"
+                if [ -e "$tmpdir/contents/$entry" ] || echo "$entry" | grep -q "\.dist-info/"; then
+                  echo "$line"
+                fi
+              done < "$record" > "$tmp_record"
+              mv "$tmp_record" "$record"
+            fi
+            cd "$tmpdir/contents" && zip -qr "$tmpdir/$(basename {wheel})" .
+            # Exclude libtriton.so: libMLIRDialectPlugin.so declares NEEDED libtriton.so,
+            # which causes auditwheel to bundle a duplicate copy (~157 MB). The plugin
+            # loads libtriton.so at runtime via the Python process that already has it.
+            auditwheel repair --exclude libtriton.so -w {dest_dir} "$tmpdir/$(basename {wheel})"
+            rm -rf "$tmpdir"
+          '
+
+          # Version-specific wheels for Python 3.10 and 3.11
+          export CIBW_BUILD="cp3{10,11}-manylinux_${{ matrix.config.arch }}"
+          export CIBW_ENVIRONMENT="TRITON_EXT_ENABLED=ON TRITON_BUILD_WITH_CLANG_LLD=1 TRITON_BUILD_RELEASE=1 TRITON_BUILD_PROTON=OFF"
+          python3 -m cibuildwheel . --output-dir wheelhouse
+
+          # Single abi3 wheel for Python 3.12+ (stable ABI)
+          export CIBW_BUILD="cp312-manylinux_${{ matrix.config.arch }}"
+          export CIBW_ENVIRONMENT="TRITON_EXT_ENABLED=ON TRITON_BUILD_WITH_CLANG_LLD=1 TRITON_BUILD_RELEASE=1 TRITON_BUILD_PROTON=OFF TRITON_STABLE_ABI=ON"
           python3 -m cibuildwheel . --output-dir wheelhouse
 
       - uses: actions/upload-artifact@v7
         with:
-          name: cibw-wheels-manylinux_2_28_${{ matrix.config.arch }}-wheels-upload
+          name: triton-wheels-manylinux_2_28_${{ matrix.config.arch }}
           path: ./wheelhouse/*.whl
 
-      - name: Install Azure CLI
-        if: ${{ steps.check-version.outputs.new_commit == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-        run: |
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+  Build-Proton-Wheels:
+    timeout-minutes: 60
+    runs-on: ${{ matrix.config.runs_on }}
 
-      - name: Azure login
-        if: ${{ steps.check-version.outputs.new_commit == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-        uses: azure/login@v2
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - {runs_on: 'ubuntu-24.04-32core-x64', arch: 'x86_64'}
+        - {runs_on: 'ubuntu-24.04-32core-arm64', arch: 'aarch64'}
+
+    steps:
+
+      - name: Prune stale docker containers
+        run: |
+          docker container prune -f
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          python-version: '3.x'
 
-      - id: generate-token
-        name: Generate token
-        if: ${{ steps.check-version.outputs.new_commit == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+      - name: Swap to proton setup.py
         run: |
-          AZ_TOKEN=$(az account get-access-token --query accessToken)
-          echo "::add-mask::$AZ_TOKEN"
-          echo "access_token=$AZ_TOKEN" >> "$GITHUB_OUTPUT"
+          mv setup.py setup_triton.py
+          cp proton_setup.py setup.py
+          echo "" >> python/setup.cfg
+          echo "[build_ext]" >> python/setup.cfg
+          echo "base-dir=/project" >> python/setup.cfg
 
-      - name: Publish wheels to Azure DevOps
-        if: ${{ steps.check-version.outputs.new_commit == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+      - name: Build wheels
         run: |
-          python3 -m pip install twine
-          python3 -m twine upload -r Triton-Nightly -u TritonArtifactsSP -p ${{ steps.generate-token.outputs.access_token }} --config-file utils/nightly.pypirc --non-interactive --verbose wheelhouse/*
+          python --version
+          python3 -m pip install cibuildwheel --upgrade --user
 
-      - name: Azure Logout
-        if: ${{ steps.check-version.outputs.new_commit == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (success() || failure()) }}
-        run: |
-          az logout
-          az cache purge
-          az account clear
+          export CIBW_BEFORE_ALL="dnf install clang lld zip -y"
+
+          export CIBW_BEFORE_BUILD="pip install nanobind && TRITON_BUILD_PROTON=ON python /project/python/build_helpers.py download_and_copy_dependencies --triton-cache-path /root/.triton"
+
+          if [[ ${{ matrix.config.arch }} == 'x86_64' ]]; then
+            export CIBW_MANYLINUX_X86_64_IMAGE="quay.io/pypa/manylinux_2_28_${{ matrix.config.arch }}:latest"
+          else
+            export CIBW_MANYLINUX_AARCH64_IMAGE="quay.io/pypa/manylinux_2_28_${{ matrix.config.arch }}:latest"
+          fi
+
+          export CIBW_REPAIR_WHEEL_COMMAND='
+            tmpdir=$(mktemp -d)
+            unzip -q {wheel} -d "$tmpdir/contents"
+            find "$tmpdir/contents" -name "*.so" -exec strip --strip-unneeded {} +
+
+            cupti_src="/project/third_party/nvidia/backend/lib"
+            cupti_dst="$tmpdir/contents/tokenspeed_triton/backends/nvidia/lib"
+            for dir in cupti cupti-blackwell; do
+              if [ -d "$cupti_src/$dir" ]; then
+                mkdir -p "$cupti_dst/$dir"
+                cp -a "$cupti_src/$dir"/*.so* "$cupti_dst/$dir/" 2>/dev/null || true
+              fi
+            done
+
+            cd "$tmpdir/contents" && zip -qr "$tmpdir/$(basename {wheel})" .
+            auditwheel repair -w {dest_dir} "$tmpdir/$(basename {wheel})"
+            rm -rf "$tmpdir"
+          '
+
+          # Version-specific wheels for Python 3.10 and 3.11
+          export CIBW_BUILD="cp3{10,11}-manylinux_${{ matrix.config.arch }}"
+          export CIBW_ENVIRONMENT="TRITON_BUILD_WITH_CLANG_LLD=1"
+          python3 -m cibuildwheel . --output-dir wheelhouse
+
+          # Single abi3 wheel for Python 3.12+ (stable ABI)
+          export CIBW_BUILD="cp312-manylinux_${{ matrix.config.arch }}"
+          export CIBW_ENVIRONMENT="TRITON_BUILD_WITH_CLANG_LLD=1 TRITON_STABLE_ABI=ON"
+          python3 -m cibuildwheel . --output-dir wheelhouse
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: proton-wheels-manylinux_2_28_${{ matrix.config.arch }}
+          path: ./wheelhouse/*.whl
+
+  Publish-Triton-to-PyPI:
+    name: Publish tokenspeed-triton to PyPI
+    if: github.event_name == 'release'
+    needs: [Build-Triton-Wheels]
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tokenspeed-triton
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download triton wheel artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: 'triton-wheels-*'
+          path: dist/
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  Publish-Proton-to-PyPI:
+    name: Publish tokenspeed-proton to PyPI
+    if: github.event_name == 'release'
+    needs: [Build-Proton-Wheels]
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tokenspeed-proton
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download proton wheel artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: 'proton-wheels-*'
+          path: dist/
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  Upload-to-GitHub-Release:
+    name: Upload wheels to GitHub Release
+    if: github.event_name == 'release'
+    needs: [Build-Triton-Wheels, Build-Proton-Wheels]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: '{triton,proton}-wheels-*'
+          path: dist/
+          merge-multiple: true
+
+      - name: Upload wheels to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.whl

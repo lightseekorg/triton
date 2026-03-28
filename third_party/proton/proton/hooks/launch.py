@@ -1,8 +1,8 @@
 from ..state import enter_state, exit_state, COMPUTE_METADATA_SCOPE_NAME
 from ..metric import transform_tensor_metrics, set_metric_kernels
-from triton.compiler import LazyDict
+from tokenspeed_triton.compiler import LazyDict
 from .hook import Hook
-from triton._C.libproton import proton as libproton
+from tokenspeed_triton._C.libproton import proton as libproton
 from contextvars import ContextVar
 from numbers import Number
 import re

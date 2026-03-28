@@ -3,10 +3,10 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 add_subdirectory(include)
 add_subdirectory(lib)
 if(TRITON_BUILD_PYTHON_MODULE)
-  set(GSAN_RUNTIME_SRC "${triton_SOURCE_DIR}/python/triton/experimental/gsan/src/GSanLibrary.cu")
+  set(GSAN_RUNTIME_SRC "${triton_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src/GSanLibrary.cu")
   set(GSAN_RUNTIME_HDRS
-    "${triton_SOURCE_DIR}/python/triton/experimental/gsan/src/GSan.h"
-    "${triton_SOURCE_DIR}/python/triton/experimental/gsan/src/Hash.cuh")
+    "${triton_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src/GSan.h"
+    "${triton_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src/Hash.cuh")
   set(GSAN_RUNTIME_IR "${CMAKE_CURRENT_SOURCE_DIR}/backend/lib/gsan.ll")
 
   find_program(TRITON_GSAN_CLANGXX NAMES clang++
@@ -47,7 +47,7 @@ if(TRITON_BUILD_PYTHON_MODULE)
   add_custom_target(TritonNVIDIAGSanRuntime ALL DEPENDS "${GSAN_RUNTIME_IR}")
 
   add_triton_plugin(TritonNVIDIA ${CMAKE_CURRENT_SOURCE_DIR}/triton_nvidia.cc LINK_LIBS TritonNVIDIAGPUToLLVM NVGPUToLLVM)
-  target_link_libraries(TritonNVIDIA PRIVATE Python3::Module pybind11::headers)
+  target_link_libraries(TritonNVIDIA PRIVATE Python3::Module nanobind-static)
   add_dependencies(TritonNVIDIA TritonNVIDIAGSanRuntime)
 endif()
 if(TRITON_BUILD_UT)

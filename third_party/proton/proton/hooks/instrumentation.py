@@ -1,15 +1,15 @@
 from typing import Dict, Optional, Union, Any
 
-import triton
-from triton._C.libtriton import ir as triton_ir
-from triton._C.libtriton import proton as triton_proton
-from triton._C.libtriton import amd as triton_amd
-from triton._C.libtriton import nvidia as triton_nvidia
-from triton._C.libtriton import passes as triton_passes
-from triton._C.libproton import proton as libproton
-from triton.compiler import LazyDict
-from triton.runtime._allocation import set_profile_allocator, NullAllocator
-from triton.backends import backends
+import tokenspeed_triton
+from tokenspeed_triton._C.libtriton import ir as triton_ir
+from tokenspeed_triton._C.libtriton import proton as triton_proton
+from tokenspeed_triton._C.libtriton import amd as triton_amd
+from tokenspeed_triton._C.libtriton import nvidia as triton_nvidia
+from tokenspeed_triton._C.libtriton import passes as triton_passes
+from tokenspeed_triton._C.libproton import proton as libproton
+from tokenspeed_triton.compiler import LazyDict
+from tokenspeed_triton.runtime._allocation import set_profile_allocator, NullAllocator
+from tokenspeed_triton.backends import backends
 
 from .hook import Hook
 from ..flags import flags
@@ -119,7 +119,7 @@ def _interpret_mode(mode_obj: Union[str, mode.InstrumentationMode]) -> mode.Inst
 
 
 def _get_backend_name() -> str:
-    backend = triton.runtime.driver.active.get_current_target().backend
+    backend = tokenspeed_triton.runtime.driver.active.get_current_target().backend
     if backend == "cuda":
         return "nvidia"
     elif backend == "hip":
@@ -154,8 +154,8 @@ class InstrumentationHook(Hook):
 
         flags.instrumentation_on = True
 
-        device = triton.runtime.driver.active.get_current_device()
-        max_shared_mem = triton.runtime.driver.active.utils.get_device_properties(device)["max_shared_mem"]
+        device = tokenspeed_triton.runtime.driver.active.get_current_device()
+        max_shared_mem = tokenspeed_triton.runtime.driver.active.utils.get_device_properties(device)["max_shared_mem"]
         backend_name = _get_backend_name()
 
         def to_llvmir_passes(pm):
@@ -180,7 +180,7 @@ class InstrumentationHook(Hook):
             if backend_name == "nvidia":
                 triton_proton.add_convert_proton_nvidia_gpu_to_llvm(pm)
             elif backend_name == "amd":
-                arch = triton.runtime.driver.active.utils.get_device_properties(device)["arch"].split(":")[0]
+                arch = tokenspeed_triton.runtime.driver.active.utils.get_device_properties(device)["arch"].split(":")[0]
                 triton_proton.add_convert_proton_amd_gpu_to_llvm(pm, arch)
 
         backends[backend_name].compiler.instrumentation = Instrumentation({
@@ -194,7 +194,7 @@ class InstrumentationHook(Hook):
         set_profile_allocator(self.allocator)
 
         # Set the instrumentation mode
-        triton.knobs.compilation.instrumentation_mode = str(self.mode)
+        tokenspeed_triton.knobs.compilation.instrumentation_mode = str(self.mode)
 
     def deactivate(self):
         if InstrumentationHook.active_count == 0:
@@ -211,7 +211,7 @@ class InstrumentationHook(Hook):
         flags.instrumentation_on = False
 
         # Restore the instrumentation mode
-        triton.knobs.compilation.instrumentation_mode = ""
+        tokenspeed_triton.knobs.compilation.instrumentation_mode = ""
 
         # Reset profile allocator
         set_profile_allocator(NullAllocator())
