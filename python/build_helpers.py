@@ -464,26 +464,27 @@ def download_and_copy_dependencies(helper_args: BuildHelperArgs):
         f"https://developer.download.nvidia.com/compute/cuda/redist/cuda_cupti/{system}-{arch}/cuda_cupti-{system}-{arch}-{version}-archive.tar.xz",
         helper_args=helper_args,
     )
-    download_and_copy(
-        name="cupti",
-        src_func=lambda system, arch, version: f"cuda_cupti-{system}-{arch}-{version}-archive/lib",
-        dst_path="lib/cupti",
-        override_path=helper_args.cupti_lib_path,
-        version=nvidia_toolchain_version["cupti"],
-        url_func=lambda system, arch, version:
-        f"https://developer.download.nvidia.com/compute/cuda/redist/cuda_cupti/{system}-{arch}/cuda_cupti-{system}-{arch}-{version}-archive.tar.xz",
-        helper_args=helper_args,
-    )
-    download_and_copy(
-        name="cupti",
-        src_func=lambda system, arch, version: f"cuda_cupti-{system}-{arch}-{version}-archive/lib",
-        dst_path="lib/cupti-blackwell",
-        override_path=helper_args.cupti_lib_blackwell_path,
-        version=nvidia_toolchain_version["cupti-blackwell"],
-        url_func=lambda system, arch, version:
-        f"https://developer.download.nvidia.com/compute/cuda/redist/cuda_cupti/{system}-{arch}/cuda_cupti-{system}-{arch}-{version}-archive.tar.xz",
-        helper_args=helper_args,
-    )
+    if os.getenv("TRITON_BUILD_PROTON", "OFF").upper() not in ("OFF", "0", "NO", "FALSE", "N"):
+        download_and_copy(
+            name="cupti",
+            src_func=lambda system, arch, version: f"cuda_cupti-{system}-{arch}-{version}-archive/lib",
+            dst_path="lib/cupti",
+            override_path=helper_args.cupti_lib_path,
+            version=nvidia_toolchain_version["cupti"],
+            url_func=lambda system, arch, version:
+            f"https://developer.download.nvidia.com/compute/cuda/redist/cuda_cupti/{system}-{arch}/cuda_cupti-{system}-{arch}-{version}-archive.tar.xz",
+            helper_args=helper_args,
+        )
+        download_and_copy(
+            name="cupti",
+            src_func=lambda system, arch, version: f"cuda_cupti-{system}-{arch}-{version}-archive/lib",
+            dst_path="lib/cupti-blackwell",
+            override_path=helper_args.cupti_lib_blackwell_path,
+            version=nvidia_toolchain_version["cupti-blackwell"],
+            url_func=lambda system, arch, version:
+            f"https://developer.download.nvidia.com/compute/cuda/redist/cuda_cupti/{system}-{arch}/cuda_cupti-{system}-{arch}-{version}-archive.tar.xz",
+            helper_args=helper_args,
+        )
 
 
 def add_common_args(parser: argparse.ArgumentParser):
