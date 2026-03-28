@@ -534,7 +534,7 @@ void init_triton_amd(py::module_ &m) {
           message << "Implicit conversion of CUDA " << funcName.str()
                   << " device function has been dropped; "
                   << "please, update your source program to use "
-                     "triton.language.extra.<op> "
+                     "tokenspeed_triton.language.extra.<op> "
                   << "to replace triton.language.extra.cuda.<op>";
           throw std::runtime_error(message.str());
         }

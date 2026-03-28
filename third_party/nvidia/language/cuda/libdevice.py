@@ -1,4 +1,4 @@
-from triton.language import core
+from tokenspeed_triton.language import core
 
 
 @core.extern

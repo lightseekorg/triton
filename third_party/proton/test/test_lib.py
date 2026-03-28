@@ -7,8 +7,8 @@ Profile correctness tests involving GPU kernels should be placed in `test_profil
 import pathlib
 import pytest
 
-import triton._C.libproton.proton as libproton
-from triton.profiler.profile import _select_backend
+import tokenspeed_triton._C.libproton.proton as libproton
+from tokenspeed_triton.profiler.profile import _select_backend
 
 
 def test_record():
