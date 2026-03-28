@@ -4,10 +4,10 @@ import pytest
 import re
 from itertools import product
 
-import triton
-import triton.language as tl
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
 
-from triton._internal_testing import (
+from tokenspeed_triton._internal_testing import (
     is_ampere_or_newer,
     is_blackwell,
     is_blackwell_ultra,
@@ -20,17 +20,17 @@ from triton._internal_testing import (
     is_hopper_or_newer,
     is_hopper,
 )
-from triton.compiler import max_shared_mem
-from triton.tools.mxfp import MXFP4Tensor, MXScaleTensor
-from triton.experimental import gluon
-from triton.experimental.gluon import language as ttgl
-from triton.experimental.gluon.language.nvidia.ampere import async_copy, mma_v2
-from triton.experimental.gluon.language.nvidia.hopper import tma, mbarrier, fence_async_shared
-from triton.experimental.gluon.language.nvidia import hopper
-from triton.experimental.gluon.language.nvidia.blackwell import tma as blackwell_tma
-from triton.experimental.gluon.language.amd.cdna4 import async_copy as cdna4_async_copy
-from triton.experimental.gluon.language.extra import libdevice
-from triton.experimental.gluon.language.nvidia.blackwell import (
+from tokenspeed_triton.compiler import max_shared_mem
+from tokenspeed_triton.tools.mxfp import MXFP4Tensor, MXScaleTensor
+from tokenspeed_triton.experimental import gluon
+from tokenspeed_triton.experimental.gluon import language as ttgl
+from tokenspeed_triton.experimental.gluon.language.nvidia.ampere import async_copy, mma_v2
+from tokenspeed_triton.experimental.gluon.language.nvidia.hopper import tma, mbarrier, fence_async_shared
+from tokenspeed_triton.experimental.gluon.language.nvidia import hopper
+from tokenspeed_triton.experimental.gluon.language.nvidia.blackwell import tma as blackwell_tma
+from tokenspeed_triton.experimental.gluon.language.amd.cdna4 import async_copy as cdna4_async_copy
+from tokenspeed_triton.experimental.gluon.language.extra import libdevice
+from tokenspeed_triton.experimental.gluon.language.nvidia.blackwell import (
     TensorMemoryLayout,
     TensorMemoryScalesLayout,
     allocate_tensor_memory,
@@ -42,8 +42,8 @@ from triton.experimental.gluon.language.nvidia.blackwell import (
     float2,
     clc,
 )
-from triton.experimental.gluon.nvidia.hopper import TensorDescriptor
-from triton._C.libtriton.gluon_ir import make_cga_layout
+from tokenspeed_triton.experimental.gluon.nvidia.hopper import TensorDescriptor
+from tokenspeed_triton._C.libtriton.gluon_ir import make_cga_layout
 
 THREADS_PER_WARP = triton.runtime.driver.active.get_current_target().warp_size
 

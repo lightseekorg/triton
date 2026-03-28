@@ -4,8 +4,8 @@ Each test should invoke one or more GPU kernels and check the validity of their 
 """
 
 import torch
-import triton
-import triton.profiler as proton
+import tokenspeed_triton as triton
+import tokenspeed_triton.profiler as proton
 import json
 import gc
 import pytest
@@ -14,11 +14,11 @@ import pathlib
 import threading
 from contextlib import contextmanager
 
-import triton.language as tl
-import triton.profiler.hooks.launch as proton_launch
-from triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
-import triton.profiler.viewer as viewer
-from triton._internal_testing import is_hip, is_cuda, is_blackwell
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler.hooks.launch as proton_launch
+from tokenspeed_triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
+import tokenspeed_triton.profiler.viewer as viewer
+from tokenspeed_triton._internal_testing import is_hip, is_cuda, is_blackwell
 
 
 def _find_frame_by_name(frame, name):

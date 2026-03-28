@@ -23,10 +23,10 @@ import argparse
 import itertools
 
 import torch
-import triton
-import triton.language as tl
-import triton.profiler as proton
-from triton.tools.tensor_descriptor import TensorDescriptor
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler as proton
+from tokenspeed_triton.tools.tensor_descriptor import TensorDescriptor
 from contextlib import contextmanager
 
 from typing import Optional
@@ -41,11 +41,11 @@ def is_hip():
 
 
 if is_cuda():
-    from triton._C.libtriton import nvidia
+    from tokenspeed_triton._C.libtriton import nvidia
     device_workspace = torch.empty(32 * 1024 * 1024, device="cuda", dtype=torch.uint8)
     device_blas = nvidia.cublas.CublasLt(device_workspace)
 elif is_hip():
-    from triton._C.libtriton import amd
+    from tokenspeed_triton._C.libtriton import amd
     device_workspace = torch.empty(32 * 1024 * 1024, device="cuda", dtype=torch.uint8)
     device_blas = amd.hipblas.HipblasLt(device_workspace)
 else:
@@ -717,7 +717,7 @@ def validate(M, N, K, dtype):
 
 
 def show_profile(precision, profile_name):
-    import triton.profiler.viewer as proton_viewer
+    import tokenspeed_triton.profiler.viewer as proton_viewer
     metric_names = ["time/ms"]
     if precision == 'fp8':
         metric_names = ["tflop8/s"] + metric_names

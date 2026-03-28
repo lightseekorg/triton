@@ -5,7 +5,7 @@ graft include
 graft lib
 graft python/src
 graft python/test
-graft python/triton
+graft python/tokenspeed_triton
 graft test
 graft third_party
 graft unittest

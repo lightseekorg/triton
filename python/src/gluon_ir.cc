@@ -150,11 +150,11 @@ struct GluonLayouts {
 
   GluonLayouts() {
     auto layouts =
-        py::module_::import_("triton.experimental.gluon.language._layouts");
+        py::module_::import_("tokenspeed_triton.experimental.gluon.language._layouts");
     auto amdLayouts =
-        py::module_::import_("triton.experimental.gluon.language.amd._layouts");
+        py::module_::import_("tokenspeed_triton.experimental.gluon.language.amd._layouts");
     auto blackwellLayouts = py::module_::import_(
-        "triton.experimental.gluon.language.nvidia.blackwell");
+        "tokenspeed_triton.experimental.gluon.language.nvidia.blackwell");
     AutoLayout = py::object(layouts.attr("AutoLayout")).release();
     CoalescedLayout = py::object(layouts.attr("CoalescedLayout")).release();
     BlockedLayout = py::object(layouts.attr("BlockedLayout")).release();
@@ -178,11 +178,11 @@ struct GluonLayouts {
     PaddedSharedLayout =
         py::object(layouts.attr("PaddedSharedLayout")).release();
     auto gfx1250Layouts = py::module_::import_(
-        "triton.experimental.gluon.language.amd.gfx1250._layouts");
+        "tokenspeed_triton.experimental.gluon.language.amd.gfx1250._layouts");
     PartitionedSharedLayout =
         py::object(gfx1250Layouts.attr("PartitionedSharedLayout")).release();
 
-    auto core = py::module_::import_("triton.language.core");
+    auto core = py::module_::import_("tokenspeed_triton.language.core");
   }
 };
 
@@ -439,7 +439,7 @@ void init_gluon_ir(py::module_ &m) {
              // repr)
              py::object tmemCls =
                  py::module_::import_(
-                     "triton.experimental.gluon.language.nvidia.blackwell")
+                     "tokenspeed_triton.experimental.gluon.language.nvidia.blackwell")
                      .attr("_TensorMemoryLinearLayout");
              auto bases = linearLayout.getBases();
              auto rowBases = bases[mlir::StringAttr::get(ctx, "row")];
@@ -1159,11 +1159,11 @@ void init_gluon_ir(py::module_ &m) {
            [](GluonOpBuilder &self, const std::string &marker, int priority) {
              auto border = self.create<ROCDL::SchedBarrier>(0);
              auto ctx = self.getContext();
-             border->setAttr("triton.warp_pipeline.border",
+             border->setAttr("tokenspeed_triton.warp_pipeline.border",
                              StringAttr::get(ctx, marker));
              if (priority > -1) {
                auto i32Ty = IntegerType::get(ctx, 32);
-               border->setAttr("triton.warp_pipeline.priority",
+               border->setAttr("tokenspeed_triton.warp_pipeline.priority",
                                IntegerAttr::get(i32Ty, priority));
              }
            });
