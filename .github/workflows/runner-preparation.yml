@@ -44,7 +44,7 @@ jobs:
             cmake/*.json
       - name: Detect if enough time has passed since last post-submit run
         id: detect-time
-        if: github.event_name == 'push'
+        if: false
         run: |
           GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           REPO_NAME="${{ github.repository }}"
@@ -99,7 +99,5 @@ jobs:
             echo '::set-output name=matrix-AMD::[["self-hosted", "gfx90a"], ["amd-gfx942"], ["amd-gfx950"]]'
             echo '::set-output name=matrix-MACOS::[["macos-latest"]]'
           else
-            echo '::set-output name=matrix-NVIDIA::[{"name":"ubuntu-latest","runner_type":"ubuntu-latest","runs_on":"ubuntu-latest"}]'
-            echo '::set-output name=matrix-AMD::["ubuntu-latest"]'
             echo '::set-output name=matrix-MACOS::[["macos-latest"]]'
           fi
