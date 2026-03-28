@@ -13,7 +13,7 @@ def parse_arguments():
         description="The proton command utility for profiling scripts and pytest tests.", usage="""
     proton [options] script.py [script_args] [script_options]
     proton [options] pytest [pytest_args] [script_options]
-    python -m triton.profiler.proton [options] script.py [script_args] [script_options]
+    python -m tokenspeed_triton.profiler.proton [options] script.py [script_args] [script_options]
 """, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("-n", "--name", type=str, help="Name of the profiling session")
     parser.add_argument("-b", "--backend", type=str, help="Profiling backend", default=None,
