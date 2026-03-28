@@ -1,8 +1,8 @@
 import torch
 
-import triton
-import triton.language as tl
-import triton.profiler as proton
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler as proton
 import pathlib
 import sys
 
