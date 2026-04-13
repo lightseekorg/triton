@@ -1,6 +1,7 @@
 # Triton builds
 build/
 build-*/
+wheelhouse/
 
 llvm-project/
 llvm-project-*/
@@ -11,6 +12,8 @@ python/build/
 python/dist/
 python/triton*.egg-info/
 python/triton_kernels/triton*.egg-info/
+python/tokenspeed_triton.egg-info/
+tokenspeed_proton.egg-info/
 
 python/triton/_C/*.pyd
 python/triton/_C/*.so
@@ -21,28 +24,50 @@ python/triton/_C/*.exe
 python/triton/_C/*.ilk
 python/triton/FileCheck
 
+python/tokenspeed_triton/_C/*.pyd
+python/tokenspeed_triton/_C/*.so
+python/tokenspeed_triton/_C/*.so.*
+python/tokenspeed_triton/_C/*.dylib
+python/tokenspeed_triton/_C/*.pdb
+python/tokenspeed_triton/_C/*.exe
+python/tokenspeed_triton/_C/*.ilk
+python/tokenspeed_triton/FileCheck
+
 # Backends copied from submodules
 python/triton/backends/*
 !python/triton/backends/__init__.py
 !python/triton/backends/compiler.py
 !python/triton/backends/driver.py
 
+python/tokenspeed_triton/backends/*
+!python/tokenspeed_triton/backends/__init__.py
+!python/tokenspeed_triton/backends/compiler.py
+!python/tokenspeed_triton/backends/driver.py
+
 # Language extras
 python/triton/language/extra/*
 !python/triton/language/extra/__init__.py
 !python/triton/language/extra/libdevice.py
 
+python/tokenspeed_triton/language/extra/*
+!python/tokenspeed_triton/language/extra/__init__.py
+!python/tokenspeed_triton/language/extra/libdevice.py
+
 # Tools extras
 python/triton/tools/extra
+python/tokenspeed_triton/tools/extra
 
 # Proton
 python/triton/profiler
+python/tokenspeed_triton/profiler
 
 # Instrumentation
 python/triton/instrumentation
+python/tokenspeed_triton/instrumentation
 
 # MLIR Plugin
 python/triton/plugins
+python/tokenspeed_triton/plugins
 
 # Python caches
 __pycache__/
