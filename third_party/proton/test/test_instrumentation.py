@@ -6,15 +6,15 @@ from typing import NamedTuple, Tuple, Optional
 import pytest
 import torch
 
-import triton
-import triton.language as tl
-import triton.profiler as proton
-import triton.profiler.language as pl
-from triton.experimental import gluon
-from triton.experimental.gluon import language as gl
-from triton.experimental.gluon.language.nvidia.blackwell import clc
-from triton.experimental.gluon.language.nvidia.hopper import mbarrier
-from triton._internal_testing import (
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler as proton
+import tokenspeed_triton.profiler.language as pl
+from tokenspeed_triton.experimental import gluon
+from tokenspeed_triton.experimental.gluon import language as gl
+from tokenspeed_triton.experimental.gluon.language.nvidia.blackwell import clc
+from tokenspeed_triton.experimental.gluon.language.nvidia.hopper import mbarrier
+from tokenspeed_triton._internal_testing import (
     is_cuda,
     is_hip,
     is_hip_cdna2,
@@ -22,7 +22,7 @@ from triton._internal_testing import (
     supports_tma,
     supports_ws,
 )
-from triton.tools.tensor_descriptor import TensorDescriptor
+from tokenspeed_triton.tools.tensor_descriptor import TensorDescriptor
 
 pl.enable_semantic("triton")
 

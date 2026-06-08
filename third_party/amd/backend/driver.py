@@ -1,13 +1,13 @@
 import functools
 import os
 import subprocess
-import triton
+import tokenspeed_triton
 from pathlib import Path
-from triton import knobs
-from triton.backends.compiler import GPUTarget
-from triton.backends.driver import GPUDriver, decompose_descriptor, expand_signature, wrap_handle_tensordesc_impl
-from triton.runtime import _allocation
-from triton.runtime.build import compile_module_from_src
+from tokenspeed_triton import knobs
+from tokenspeed_triton.backends.compiler import GPUTarget
+from tokenspeed_triton.backends.driver import GPUDriver, decompose_descriptor, expand_signature, wrap_handle_tensordesc_impl
+from tokenspeed_triton.runtime import _allocation
+from tokenspeed_triton.runtime.build import compile_module_from_src
 
 dirname = os.path.dirname(os.path.realpath(__file__))
 include_dirs = [os.path.join(dirname, "include")]
@@ -239,7 +239,7 @@ def make_kernel_signature(signature):
         _flatten_signature(sig, flat_signature)
     kernel_signature = [x for x in flat_signature if x != "constexpr"]
 
-    return triton.runtime.driver.active.utils.build_signature_metadata(kernel_signature)
+    return tokenspeed_triton.runtime.driver.active.utils.build_signature_metadata(kernel_signature)
 
 
 def annotate_arguments(signature):
@@ -285,7 +285,7 @@ def make_tensordesc_arg(arg, tensordesc_metadata, base_args):
         pad_interval, pad_amount = interval_padding_pairs[0]
     num_warps = kernel_metadata[0]
 
-    driver = triton.runtime.driver.active
+    driver = tokenspeed_triton.runtime.driver.active
     assert isinstance(driver, HIPDriver)
 
     desc = driver.utils.create_tdm_descriptor(elem_bits, block_size, num_warps, pad_interval, pad_amount, shape,
@@ -320,7 +320,7 @@ class HIPLauncher(object):
         constants = {arg_idx(idx): value for idx, value in constants.items()}
         signature = {idx: value for idx, value in src.signature.items()}
         tensordesc_meta = getattr(metadata, "tensordesc_meta", None)
-        launcher = triton.runtime.driver.active.utils.launch
+        launcher = tokenspeed_triton.runtime.driver.active.utils.launch
         expanded_signature = expand_signature(signature.values(), tensordesc_meta, "tensordesc")
         self.arg_annotations = annotate_arguments(expanded_signature)
         self.kernel_signature = make_kernel_signature(expanded_signature)
@@ -329,7 +329,7 @@ class HIPLauncher(object):
         self.warp_size = metadata.warp_size
         # Check if cooperative groups are supported on the device.
         if self.launch_cooperative_grid:
-            driver = triton.runtime.driver.active
+            driver = tokenspeed_triton.runtime.driver.active
             assert isinstance(driver, HIPDriver)
             device = driver.get_current_device()
             device_properties = driver.utils.get_device_properties(device)
@@ -342,7 +342,7 @@ class HIPLauncher(object):
 
     def __call__(self, gridX, gridY, gridZ, stream, function, kernel_metadata, launch_metadata, launch_enter_hook,
                  launch_exit_hook, *args):
-        active_driver = triton.runtime.driver.active
+        active_driver = tokenspeed_triton.runtime.driver.active
 
         def allocate_scratch(size, align, allocator):
             if size > 0:
@@ -406,7 +406,7 @@ class HIPDriver(GPUDriver):
         return torch.device("cuda", self.get_current_device())
 
     def get_benchmarker(self):
-        from triton.testing import do_bench
+        from tokenspeed_triton.testing import do_bench
         return do_bench
 
     def get_empty_cache_for_benchmark(self):

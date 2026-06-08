@@ -120,11 +120,11 @@ Future updates to this tutorial which support mixed precision block scaled matmu
 import argparse
 
 import torch
-import triton
-import triton.language as tl
-import triton.profiler as proton
-from triton.tools.tensor_descriptor import TensorDescriptor
-from triton.tools.mxfp import MXFP4Tensor, MXScaleTensor
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler as proton
+from tokenspeed_triton.tools.tensor_descriptor import TensorDescriptor
+from tokenspeed_triton.tools.mxfp import MXFP4Tensor, MXScaleTensor
 
 
 def is_cuda():
@@ -141,7 +141,7 @@ def supports_block_scaling():
 
 
 if is_cuda() and torch.cuda.get_device_capability()[0] in [10, 11]:
-    from triton._C.libtriton import nvidia
+    from tokenspeed_triton._C.libtriton import nvidia
     cublas_workspace = torch.empty(32 * 1024 * 1024, device="cuda", dtype=torch.uint8)
     cublas = nvidia.cublas.CublasLt(cublas_workspace)
 else:
@@ -490,7 +490,7 @@ def bench_block_scaled(K, block_scale_type="nvfp4", reps=10, warmup_reps=10):
 
 
 def show_profile(profile_name):
-    import triton.profiler.viewer as proton_viewer
+    import tokenspeed_triton.profiler.viewer as proton_viewer
 
     metric_names = ["time/ms"]
     metric_names = ["tflop/s"] + metric_names
@@ -499,7 +499,7 @@ def show_profile(profile_name):
     proton_viewer.print_tree(tree, metrics)
 
 
-@triton.jit
+@triton.jit(launch_metadata=_matmul_launch_metadata)
 def block_scaled_matmul_kernel_cdna4(a_ptr, b_ptr, c_ptr, a_scales_ptr, b_scales_ptr, M, N, K, stride_am, stride_ak,
                                      stride_bk, stride_bn, stride_ck, stride_cm, stride_cn, stride_asm, stride_ask,
                                      stride_bsn, stride_bsk,
