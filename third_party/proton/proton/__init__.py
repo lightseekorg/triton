@@ -6,21 +6,21 @@
 # still discover the SDK library through _rocm_sdk_core.
 def _ensure_rocprofiler_sdk_env():
     import os
-    import triton
+    import tokenspeed_triton.knobs as knobs
 
     for key, value in (
-        ("TRITON_ROCPROFILER_SDK_INCLUDE_PATH", triton.knobs.proton.rocprofiler_sdk_include_path),
-        ("TRITON_ROCPROFILER_SDK_LIB_PATH", triton.knobs.proton.rocprofiler_sdk_lib_path),
+        ("TRITON_ROCPROFILER_SDK_INCLUDE_PATH", knobs.proton.rocprofiler_sdk_include_path),
+        ("TRITON_ROCPROFILER_SDK_LIB_PATH", knobs.proton.rocprofiler_sdk_lib_path),
     ):
         if not os.environ.get(key, None) and value is not None:
-            triton.knobs.setenv(key, value)
+            knobs.setenv(key, value)
 
     if not os.environ.get("TRITON_ROCPROFILER_SDK_LIB_PATH", None):
         try:
             import _rocm_sdk_core
             lib_dir = os.path.join(os.path.dirname(_rocm_sdk_core.__file__), "lib")
             if os.path.isdir(lib_dir):
-                triton.knobs.proton.rocprofiler_sdk_lib_path = lib_dir
+                knobs.proton.rocprofiler_sdk_lib_path = lib_dir
         except ImportError:
             pass
 

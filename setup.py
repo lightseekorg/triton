@@ -100,7 +100,7 @@ class BackendInstaller:
         for file in ["compiler.py", "driver.py"]:
             assert os.path.exists(os.path.join(backend_path, file)), f"${file} does not exist in ${backend_path}"
 
-        install_dir = os.path.join(os.path.dirname(__file__), "python", "triton", "backends", backend_name)
+        install_dir = os.path.join(os.path.dirname(__file__), "python", "tokenspeed_triton", "backends", backend_name)
 
         return Backend(name=backend_name, src_dir=backend_src_dir, backend_dir=backend_path, language_dir=language_dir,
                        tools_dir=tools_dir, install_dir=install_dir, is_external=is_external)
@@ -135,6 +135,8 @@ def get_build_type():
         return "TritonRelBuildWithAsserts"
     elif check_env_flag("TRITON_BUILD_WITH_O1"):
         return "TritonBuildWithO1"
+    elif check_env_flag("TRITON_BUILD_RELEASE"):
+        return "Release"
     else:
         # TODO: change to release when stable enough
         return "TritonRelBuildWithAsserts"
@@ -340,6 +342,7 @@ class CMakeBuild(build_ext):
             "TRITON_PARALLEL_LINK_JOBS",
             "TRITON_OFFLINE_BUILD",
             "TRITON_LLVM_SYSTEM_SUFFIX",
+            "TRITON_STABLE_ABI",
             "LLVM_SYSPATH",
             "JSON_SYSPATH",
             "TRITON_CUDACRT_PATH",
@@ -355,8 +358,10 @@ class CMakeBuild(build_ext):
             "TRITON_PTXAS_BLACKWELL_PATH",
         ]
         cmake_args += [f"-D{option}={os.getenv(option)}" for option in passthrough_args if option in os.environ]
+        if "TRITON_BUILD_PROTON" not in os.environ:
+            cmake_args += ["-DTRITON_BUILD_PROTON=OFF"]
 
-        if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
+        if check_env_flag("TRITON_BUILD_PROTON", "OFF"):
             cmake_args += self.get_proton_cmake_args()
 
         if is_offline_build():
@@ -386,45 +391,37 @@ def get_package_dirs():
         if backend.is_external:
             continue
 
-        yield (f"triton.backends.{backend.name}", backend.backend_dir)
+        yield (f"tokenspeed_triton.backends.{backend.name}", backend.backend_dir)
 
         if backend.language_dir:
-            # Install the contents of each backend's `language` directory into
-            # `triton.language.extra`.
             for x in os.listdir(backend.language_dir):
-                yield (f"triton.language.extra.{x}", os.path.join(backend.language_dir, x))
+                yield (f"tokenspeed_triton.language.extra.{x}", os.path.join(backend.language_dir, x))
 
         if backend.tools_dir:
-            # Install the contents of each backend's `tools` directory into
-            # `triton.tools.extra`.
             for x in os.listdir(backend.tools_dir):
-                yield (f"triton.tools.extra.{x}", os.path.join(backend.tools_dir, x))
+                yield (f"tokenspeed_triton.tools.extra.{x}", os.path.join(backend.tools_dir, x))
 
-    if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
-        yield ("triton.profiler", "third_party/proton/proton")
-        yield ("triton.profiler.hooks", "third_party/proton/proton/hooks")
+    if check_env_flag("TRITON_BUILD_PROTON", "OFF"):
+        yield ("tokenspeed_triton.profiler", "third_party/proton/proton")
+        yield ("tokenspeed_triton.profiler.hooks", "third_party/proton/proton/hooks")
 
 
 def get_packages():
-    yield from find_packages(where="python")
+    yield from find_packages(where="python", exclude=["tokenspeed_triton.profiler", "tokenspeed_triton.profiler.*"])
 
     for backend in backends:
-        yield f"triton.backends.{backend.name}"
+        yield f"tokenspeed_triton.backends.{backend.name}"
 
         if backend.language_dir:
-            # Install the contents of each backend's `language` directory into
-            # `triton.language.extra`.
             for x in os.listdir(backend.language_dir):
-                yield f"triton.language.extra.{x}"
+                yield f"tokenspeed_triton.language.extra.{x}"
 
         if backend.tools_dir:
-            # Install the contents of each backend's `tools` directory into
-            # `triton.tools.extra`.
             for x in os.listdir(backend.tools_dir):
-                yield f"triton.tools.extra.{x}"
+                yield f"tokenspeed_triton.tools.extra.{x}"
 
-    if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
-        yield "triton.profiler"
+    if check_env_flag("TRITON_BUILD_PROTON", "OFF"):
+        yield "tokenspeed_triton.profiler"
 
 
 def add_link_to_backends(external_only):
@@ -437,7 +434,7 @@ def add_link_to_backends(external_only):
         if backend.language_dir:
             # Link the contents of each backend's `language` directory into
             # `triton.language.extra`.
-            extra_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "python", "triton", "language",
+            extra_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "python", "tokenspeed_triton", "language",
                                                      "extra"))
             for x in os.listdir(backend.language_dir):
                 src_dir = os.path.join(backend.language_dir, x)
@@ -447,7 +444,7 @@ def add_link_to_backends(external_only):
         if backend.tools_dir:
             # Link the contents of each backend's `tools` directory into
             # `triton.tools.extra`.
-            extra_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "python", "triton", "tools", "extra"))
+            extra_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "python", "tokenspeed_triton", "tools", "extra"))
             for x in os.listdir(backend.tools_dir):
                 src_dir = os.path.join(backend.tools_dir, x)
                 install_dir = os.path.join(extra_dir, x)
@@ -456,17 +453,22 @@ def add_link_to_backends(external_only):
 
 def add_link_to_proton():
     proton_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "third_party", "proton", "proton"))
-    proton_install_dir = os.path.join(os.path.dirname(__file__), "python", "triton", "profiler")
+    proton_install_dir = os.path.join(os.path.dirname(__file__), "python", "tokenspeed_triton", "profiler")
     update_symlink(proton_install_dir, proton_dir)
 
 
 def add_links(external_only):
     add_link_to_backends(external_only=external_only)
-    if not external_only and check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
+    if not external_only and check_env_flag("TRITON_BUILD_PROTON", "OFF"):
         add_link_to_proton()
 
 
 class plugin_bdist_wheel(bdist_wheel):
+
+    def get_tag(self):
+        if check_env_flag("TRITON_STABLE_ABI"):
+            return "cp312", "abi3", super().get_tag()[2]
+        return super().get_tag()
 
     def run(self):
         add_links(external_only=True)
@@ -512,13 +514,25 @@ class plugin_sdist(sdist):
 
 def get_entry_points():
     entry_points = {}
-    if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
+    if check_env_flag("TRITON_BUILD_PROTON", "OFF"):
         entry_points["console_scripts"] = [
-            "proton-viewer = triton.profiler.viewer:main",
-            "proton = triton.profiler.proton:main",
+            "proton-viewer = tokenspeed_triton.profiler.viewer:main",
+            "proton = tokenspeed_triton.profiler.proton:main",
         ]
-    entry_points["triton.backends"] = [f"{b.name} = triton.backends.{b.name}" for b in backends]
+    entry_points["tokenspeed_triton.backends"] = [f"{b.name} = tokenspeed_triton.backends.{b.name}" for b in backends]
     return entry_points
+
+
+def get_post_timestamp():
+    # Use the commit timestamp (UTC) as the post-release number
+    # This is orderable: .post20260301 < .post20260315
+    try:
+        cmd = ['git', 'show', '--quiet', '--date=format-local:%Y%m%d', '--format=%cd']
+        env = {**os.environ, 'TZ': 'UTC0'}
+        timestamp = subprocess.check_output(cmd, env=env).strip().decode('utf-8')
+        return f'.post{timestamp}'
+    except Exception:
+        return ""
 
 
 def get_git_commit_hash(length=8):
@@ -538,13 +552,22 @@ def get_git_branch():
 
 
 def get_git_version_suffix():
+    """Generate a PEP 440-compliant version suffix from git state.
+
+    - Release branches: no suffix (e.g., "3.6.0")
+    - Post-release builds: .postYYYYMMDD (e.g., "3.6.0.post20260301")
+    - Optionally retains git hash as local segment for traceability
+    """
     if not is_git_repo():
         return ""  # Not a git checkout
     branch = get_git_branch()
-    if branch.startswith("release"):
-        return ""
-    else:
-        return get_git_commit_hash()
+    #if branch.startswith("release"):
+    #    return ""
+    timestamp = get_post_timestamp()
+    # Append git hash as local version for traceability
+    #commit_hash = get_git_commit_hash()
+    #return f"{timestamp}{commit_hash}"
+    return f"{timestamp}"
 
 
 def get_triton_version_suffix():
@@ -575,11 +598,11 @@ PYTHON_CLASSIFIERS = [
 CLASSIFIERS = BASE_CLASSIFIERS + PYTHON_CLASSIFIERS
 
 setup(
-    name=os.environ.get("TRITON_WHEEL_NAME", "triton"),
+    name=os.environ.get("TRITON_WHEEL_NAME", "tokenspeed-triton"),
     version=TRITON_VERSION,
     author="Philippe Tillet",
     author_email="phil@openai.com",
-    description="A language and compiler for custom Deep Learning operations",
+    description="A language and compiler for custom Deep Learning operations (vendor release for TokenSpeed)",
     long_description="",
     license="MIT",
     install_requires=[
@@ -593,8 +616,12 @@ setup(
         "__pycache__",
         "__pycache__/*",
         "*.py[cod]",
+        "*.a",
+        "libGPUInstrumentationTestLib*",
+        "libTritonPluginsTestLib*",
+        "libproton*",
     ]},
-    ext_modules=[CMakeExtension("triton", "triton/_C/")],
+    ext_modules=[CMakeExtension("tokenspeed_triton", "tokenspeed_triton/_C/")],
     cmdclass={
         "bdist_wheel": plugin_bdist_wheel,
         "build_ext": CMakeBuild,

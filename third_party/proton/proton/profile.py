@@ -1,8 +1,8 @@
 import functools
-import triton
+import tokenspeed_triton
 
-from triton._C.libproton import proton as libproton  # type: ignore
-from triton._C.libtriton import getenv  # type: ignore
+from tokenspeed_triton._C.libproton import proton as libproton  # type: ignore
+from tokenspeed_triton._C.libtriton import getenv  # type: ignore
 from .flags import flags
 from .hooks import HookManager, LaunchHook, InstrumentationHook
 from .hooks.hook import Hook
@@ -13,13 +13,13 @@ DEFAULT_PROFILE_NAME = "proton"
 
 
 def _select_backend() -> str:
-    backend = triton.runtime.driver.active.get_current_target().backend
+    backend = tokenspeed_triton.runtime.driver.active.get_current_target().backend
     return libproton.select_profiler_from_triton_backend(backend)
 
 
 def _get_mode_str(backend: str, mode: Optional[Union[str, BaseMode]]) -> str:
     if backend == "instrumentation":
-        prefix = triton.runtime.driver.active.get_current_target().backend
+        prefix = tokenspeed_triton.runtime.driver.active.get_current_target().backend
         return f"{prefix}:{mode}" if mode else prefix
     return str(mode) if mode else ""
 
@@ -33,20 +33,20 @@ def _check_env(backend: str) -> None:
                     f"Proton does not work when the environment variable {env} is set on AMD GPUs. Please unset it and use `ROCR_VISIBLE_DEVICES` instead"
                 )
 
-    use_blackwell_cupti = backend == "cupti" and triton.runtime.driver.active.get_current_target().arch >= 100
+    use_blackwell_cupti = backend == "cupti" and tokenspeed_triton.runtime.driver.active.get_current_target().arch >= 100
 
     # Ensure default envs are set for Proton knobs if not already set by the user.
-    for attr, desc in triton.knobs.proton.knob_descriptors.items():
+    for attr, desc in tokenspeed_triton.knobs.proton.knob_descriptors.items():
         key = desc.key
         if getenv(key, None) is None:
             if key == "TRITON_CUPTI_LIB_PATH" and use_blackwell_cupti:
                 # For Blackwell+ GPUs, use the cupti library built for Blackwell.
-                triton.knobs.setenv(key, triton.knobs.proton.cupti_lib_blackwell_dir)
+                tokenspeed_triton.knobs.setenv(key, tokenspeed_triton.knobs.proton.cupti_lib_blackwell_dir)
                 continue
-            val = getattr(triton.knobs.proton, attr)
+            val = getattr(tokenspeed_triton.knobs.proton, attr)
             if val is not None:
-                if env_val := triton.knobs.toenv(val):
-                    triton.knobs.setenv(key, env_val[0])
+                if env_val := tokenspeed_triton.knobs.toenv(val):
+                    tokenspeed_triton.knobs.setenv(key, env_val[0])
 
 
 def start(
@@ -103,7 +103,7 @@ def start(
     Returns:
         session (Optional[int]): The session ID of the profiling session, or None if profiling is disabled.
     """
-    if flags.command_line or triton.knobs.proton.disable:
+    if flags.command_line or tokenspeed_triton.knobs.proton.disable:
         # Ignore the start() call if the script is run from the command line or profiling is disabled.
         return None
 
