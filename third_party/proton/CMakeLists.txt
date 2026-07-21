@@ -1,5 +1,7 @@
 project(Proton LANGUAGES CXX)
 
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+
 include(Backend.cmake)
 include(CheckCXXSourceCompiles)
 
@@ -47,6 +49,9 @@ if(NOT TARGET nanobind-static)
 
   find_package(nanobind CONFIG REQUIRED HINTS "${Python3_SITELIB}")
   nanobind_build_library(nanobind-static)
+  if(TRITON_STABLE_ABI)
+    target_compile_definitions(nanobind-static PUBLIC Py_LIMITED_API=0x030C0000)
+  endif()
   target_link_libraries(nanobind-static PRIVATE Python3::Module)
 endif()
 

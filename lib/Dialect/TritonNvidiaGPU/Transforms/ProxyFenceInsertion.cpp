@@ -122,7 +122,8 @@ private:
   /// Updates the BlockInfo operation based on the operation.
   virtual void update(Operation *operation, BlockInfo *blockInfo,
                       FuncBlockInfoMapT *funcBlockInfoMap,
-                      OpBuilder *builder) override;
+                      OpBuilder *builder,
+                      BufferIndexAnalysis *) override;
 
   void insertFence(Operation *operation, OpBuilder *builder);
 };
