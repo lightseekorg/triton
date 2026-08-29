@@ -5,9 +5,9 @@ import tempfile
 
 from pathlib import Path
 
-import triton
+import tokenspeed_triton as triton
 
-from triton.runtime.build import compile_module_from_src
+from tokenspeed_triton.runtime.build import compile_module_from_src
 
 TEST_MODULE_C = """
 #include <Python.h>

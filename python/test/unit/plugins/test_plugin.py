@@ -32,7 +32,7 @@ def test_op(capfd, device: str):
         return
 
     # Extend Triton's passes with the plugin's passes.
-    LIB = 'python/triton/plugins/libTritonPluginsTestLib.so'
+    LIB = 'python/tokenspeed_triton/plugins/libTritonPluginsTestLib.so'
     triton._C.libtriton.passes.plugin.extend_with(LIB)
 
     size = 98432

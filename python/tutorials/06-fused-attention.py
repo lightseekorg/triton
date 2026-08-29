@@ -17,9 +17,9 @@ import pytest
 import torch
 import os
 
-import triton
-import triton.language as tl
-from triton.tools.tensor_descriptor import TensorDescriptor
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
+from tokenspeed_triton.tools.tensor_descriptor import TensorDescriptor
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 

@@ -522,7 +522,7 @@ void init_triton_amd(py::module_ &m) {
           message << "Implicit conversion of CUDA " << funcName.str()
                   << " device function has been dropped; "
                   << "please, update your source program to use "
-                     "triton.language.extra.<op> "
+                     "tokenspeed_triton.language.extra.<op> "
                   << "to replace triton.language.extra.cuda.<op>";
           throw std::runtime_error(message.str());
         }
@@ -567,10 +567,7 @@ void init_triton_amd(py::module_ &m) {
                                .attr("find_libraries")("hipblaslt");
           auto path = libraries.attr("__getitem__")(0);
           auto pathString = path.attr("__str__")();
-          const char *pathChars = PyUnicode_AsUTF8(pathString.ptr());
-          if (pathChars == nullptr)
-            throw py::python_error();
-          hipblasLtPath = pathChars;
+          hipblasLtPath = py::cast<std::string>(pathString);
         } catch (py::python_error &e) {
           e.restore();
           if (PyErr_ExceptionMatches(PyExc_ImportError) ||

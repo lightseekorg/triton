@@ -29,8 +29,8 @@ of gemms. The scheduling is static and we do it on device.
 from typing import Optional
 import torch
 
-import triton
-import triton.language as tl
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 

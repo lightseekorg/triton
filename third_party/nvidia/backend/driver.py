@@ -1,14 +1,14 @@
 import functools
 import os
 import subprocess
-import triton
+import tokenspeed_triton as triton
 import ctypes
 import sys
-from triton import knobs
-from triton.runtime.build import compile_module_from_file
-from triton.runtime import _allocation
-from triton.backends.compiler import GPUTarget
-from triton.backends.driver import GPUDriver, decompose_descriptor, expand_signature, wrap_handle_tensordesc_impl
+from tokenspeed_triton import knobs
+from tokenspeed_triton.runtime.build import compile_module_from_file
+from tokenspeed_triton.runtime import _allocation
+from tokenspeed_triton.backends.compiler import GPUTarget
+from tokenspeed_triton.backends.driver import GPUDriver, decompose_descriptor, expand_signature, wrap_handle_tensordesc_impl
 
 dirname = os.path.dirname(os.path.realpath(__file__))
 include_dirs = [os.path.join(dirname, "include")]
@@ -328,8 +328,8 @@ class CudaLauncher(object):
             if active_driver.utils.is_stream_capturing(stream):
                 raise RuntimeError("GSan does not support CUDA graph capture")
 
-            import triton.experimental.gsan._allocator as gsan_allocator
-            import triton.experimental.gsan._stream_sync as gsan_stream_sync
+            import tokenspeed_triton.experimental.gsan._allocator as gsan_allocator
+            import tokenspeed_triton.experimental.gsan._stream_sync as gsan_stream_sync
             device = triton.runtime.driver.active.get_current_device()
             device_rank = gsan_allocator.get_device_rank(device)
             gsan_state_ptr = gsan_allocator.get_global_state_pointer() + device_rank * GSAN_PER_DEVICE_STATE_STRIDE
@@ -392,7 +392,7 @@ class CudaDriver(GPUDriver):
         return ty_to_cpp(ty)
 
     def get_benchmarker(self):
-        from triton.testing import do_bench
+        from tokenspeed_triton.testing import do_bench
         return do_bench
 
     def get_empty_cache_for_benchmark(self):

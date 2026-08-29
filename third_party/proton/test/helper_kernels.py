@@ -1,5 +1,5 @@
-import triton.language as tl
-import triton
+import tokenspeed_triton.language as tl
+import tokenspeed_triton as triton
 
 
 @triton.jit

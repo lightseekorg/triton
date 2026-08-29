@@ -2,7 +2,7 @@
 Centralized, process-local flags with a minimal interface (no environment variables).
 
 Usage:
-    from triton.profiler.flags import flags
+    from tokenspeed_triton.profiler.flags import flags
 
     # Toggle
     flags.profiling_on = True

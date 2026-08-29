@@ -32,10 +32,10 @@ Workflow:
 import argparse
 
 import torch
-import triton
-import triton.language as tl
-import triton.profiler as proton
-from triton.profiler.mode import Default
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler as proton
+from tokenspeed_triton.profiler.mode import Default
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 
