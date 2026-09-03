@@ -7,8 +7,8 @@ import inspect
 import os
 import pathlib
 
-import triton
-import triton.profiler as proton
+import tokenspeed_triton as triton
+import tokenspeed_triton.profiler as proton
 import torch
 import json
 import pytest
@@ -16,12 +16,12 @@ from typing import NamedTuple
 import threading
 import time
 
-import triton.language as tl
-import triton.profiler.hooks.launch as proton_launch
-from triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
-import triton.profiler.viewer as viewer
-from triton._internal_testing import is_hip, is_cuda, is_blackwell
-from triton.testing import cuda_graph_without_gc
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler.hooks.launch as proton_launch
+from tokenspeed_triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
+import tokenspeed_triton.profiler.viewer as viewer
+from tokenspeed_triton._internal_testing import is_hip, is_cuda, is_blackwell
+from tokenspeed_triton.testing import cuda_graph_without_gc
 
 
 def _find_frame_by_name(frame, name):
@@ -961,7 +961,7 @@ def test_pcsampling(tmp_path: pathlib.Path, device: str):
         pytest.skip("PC sampling test is disabled")
     expect_source_attribution = True
     if is_hip():
-        from triton._C.libproton import proton as libproton
+        from tokenspeed_triton._C.libproton import proton as libproton
 
         expect_source_attribution = libproton.has_amd_pc_sampling_source_locations()
 

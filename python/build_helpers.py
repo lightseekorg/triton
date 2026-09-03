@@ -654,6 +654,9 @@ def get_nvidia_toolchain_packages():
 
 def download_and_copy_dependencies(helper_args: BuildHelperArgs):
     for package in get_nvidia_toolchain_packages():
+        if (package.name in ("cupti", "cupti-blackwell") and package.src_path == "lib"
+                and not check_env_flag("TRITON_BUILD_PROTON", "OFF")):
+            continue
         download_and_copy(
             name=package.name,
             src_func=lambda system, arch, version, package=package:

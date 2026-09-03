@@ -1,8 +1,8 @@
 import os
 import pytest
 import shutil
-import triton
-from triton._internal_testing import is_hip
+import tokenspeed_triton as triton
+from tokenspeed_triton._internal_testing import is_hip
 
 from pathlib import Path
 

@@ -159,14 +159,14 @@ struct GluonLayouts {
   py::handle PartitionedSharedLayout;
 
   GluonLayouts() {
-    auto layouts =
-        py::module_::import_("triton.experimental.gluon.language._layouts");
-    auto amdLayouts =
-        py::module_::import_("triton.experimental.gluon.language.amd._layouts");
+    auto layouts = py::module_::import_(
+        "tokenspeed_triton.experimental.gluon.language._layouts");
+    auto amdLayouts = py::module_::import_(
+        "tokenspeed_triton.experimental.gluon.language.amd._layouts");
     auto blackwellLayouts = py::module_::import_(
-        "triton.experimental.gluon.language.nvidia.blackwell");
-    auto rubinLayouts =
-        py::module_::import_("triton.experimental.gluon.language.nvidia.rubin");
+        "tokenspeed_triton.experimental.gluon.language.nvidia.blackwell");
+    auto rubinLayouts = py::module_::import_(
+        "tokenspeed_triton.experimental.gluon.language.nvidia.rubin");
     AutoLayout = py::object(layouts.attr("AutoLayout")).release();
     CoalescedLayout = py::object(layouts.attr("CoalescedLayout")).release();
     BlockedLayout = py::object(layouts.attr("BlockedLayout")).release();
@@ -192,11 +192,11 @@ struct GluonLayouts {
     PaddedSharedLayout =
         py::object(layouts.attr("PaddedSharedLayout")).release();
     auto cdna5Layouts = py::module_::import_(
-        "triton.experimental.gluon.language.amd.cdna5._layouts");
+        "tokenspeed_triton.experimental.gluon.language.amd.cdna5._layouts");
     PartitionedSharedLayout =
         py::object(cdna5Layouts.attr("PartitionedSharedLayout")).release();
 
-    auto core = py::module_::import_("triton.language.core");
+    auto core = py::module_::import_("tokenspeed_triton.language.core");
   }
 };
 
@@ -468,8 +468,8 @@ void init_gluon_ir(py::module_ &m) {
              // Build Py _TensorMemoryLinearLayout(row_bases, col_bases, shape,
              // repr)
              py::object tmemCls =
-                 py::module_::import_(
-                     "triton.experimental.gluon.language.nvidia.blackwell")
+                 py::module_::import_("tokenspeed_triton.experimental.gluon."
+                                      "language.nvidia.blackwell")
                      .attr("_TensorMemoryLinearLayout");
              auto bases = linearLayout.getBases();
              auto rowBases = bases[mlir::StringAttr::get(ctx, "row")];

@@ -48,7 +48,7 @@ jobs:
       PROTON_SKIP_PC_SAMPLING_TEST: 1
       PROTON_SKIP_CUDAGRAPH_TEST: 1
       PYTHON: "python3"
-      PYTEST_ADDOPTS: "-p triton._compile_warmup"
+      PYTEST_ADDOPTS: "-p tokenspeed_triton._compile_warmup"
       CCACHE_COMPRESS: "true"
       PIP_BREAK_SYSTEM_PACKAGES: 1
     container:
@@ -141,10 +141,10 @@ jobs:
           if ${{ contains(matrix.runner, 'amd-gfx950') || contains(matrix.runner, 'amd-gfx942') }}; then
             warmup_targets+=(python/triton_kernels/tests)
           fi
-          python3 -m triton._test_runner warmup --warmup-procs "$warmup_procs" "${warmup_targets[@]}"
+          python3 -m tokenspeed_triton._test_runner warmup --warmup-procs "$warmup_procs" "${warmup_targets[@]}"
       - name: Run Python tests on AMD
         run: |
-          INSTRUMENTATION_LIB_DIR="${GITHUB_WORKSPACE}/python/triton/instrumentation"
+          INSTRUMENTATION_LIB_DIR="${GITHUB_WORKSPACE}/python/tokenspeed_triton/instrumentation"
           if [ ! -d "${INSTRUMENTATION_LIB_DIR}" ]; then
             echo "Could not find '${INSTRUMENTATION_LIB_DIR}'" ; exit -1
           fi
@@ -212,7 +212,7 @@ jobs:
         run: |
           make test-regression
       - name: Verify compile warmup completeness
-        run: python3 -m triton._test_runner report --require-complete
+        run: python3 -m tokenspeed_triton._test_runner report --require-complete
       - name: Run microbenchmark tests
         run: |
           python3 python/test/microbenchmark/launch_overhead.py

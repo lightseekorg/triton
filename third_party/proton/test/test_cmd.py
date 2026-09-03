@@ -21,7 +21,7 @@ def clean_rocprofiler_env():
 
 
 def test_configure_runtime_without_therock(monkeypatch):
-    from triton.profiler import _rocm
+    from tokenspeed_triton.profiler import _rocm
 
     monkeypatch.setattr(_rocm, "find_therock_rocm_libraries", lambda: None)
     assert _rocm.configure_runtime() is None
@@ -57,7 +57,7 @@ expected = {
 }
 roctx = pathlib.Path(rocm_sdk.find_libraries("roctx64")[0])
 
-import triton.profiler
+import tokenspeed_triton.profiler
 
 assert os.environ["TRITON_LIBHIP_PATH"] == str(amdhip)
 ctypes.CDLL(os.environ["TRITON_LIBHIP_PATH"])
@@ -90,7 +90,7 @@ import torch
 if torch.version.hip is None:
     raise SystemExit(77)
 
-import triton.profiler as proton
+import tokenspeed_triton.profiler as proton
 
 session = proton.start(str(pathlib.Path(sys.argv[1]).with_suffix("")))
 proton.finalize(session)
@@ -117,8 +117,9 @@ def test_exec(mode, tmp_path: pathlib.Path):
     if mode == "script":
         subprocess.check_call(["proton", "-n", name, helper_file, "test"], env=env, stdout=subprocess.DEVNULL)
     elif mode == "python":
-        subprocess.check_call([sys.executable, "-m", "triton.profiler.proton", "-n", name, helper_file, "test"],
-                              env=env, stdout=subprocess.DEVNULL)
+        subprocess.check_call(
+            [sys.executable, "-m", "tokenspeed_triton.profiler.proton", "-n", name, helper_file, "test"], env=env,
+            stdout=subprocess.DEVNULL)
     elif mode == "pytest":
         subprocess.check_call(["proton", "-n", name, "pytest", "-k", "test_main", helper_file], env=env,
                               stdout=subprocess.DEVNULL)

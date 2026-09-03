@@ -27,7 +27,7 @@ jobs:
       TRITON_DISABLE_LINE_INFO: 1
       PROTON_SKIP_PC_SAMPLING_TEST: 1
       PYTHON: "python3"
-      PYTEST_ADDOPTS: "-p triton._compile_warmup"
+      PYTEST_ADDOPTS: "-p tokenspeed_triton._compile_warmup"
       CCACHE_COMPRESS: "true"
     steps:
       - name: Checkout
@@ -118,7 +118,7 @@ jobs:
       - name: Run gluon tests
         run: make NUM_PROCS=24 NUM_GPUS="$NUM_GPUS" test-gluon
       - name: Verify compile warmup completeness
-        run: python3 -m triton._test_runner report --require-complete
+        run: python3 -m tokenspeed_triton._test_runner report --require-complete
       - name: Inspect cache directories
         run: |
           mkdir -p ~/.triton
