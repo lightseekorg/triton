@@ -7,13 +7,13 @@ Profile correctness tests involving GPU kernels should be placed in `test_profil
 import pytest
 import json
 import torch
-import triton.profiler as proton
+import tokenspeed_triton.profiler as proton
 import pathlib
-from triton.profiler.hooks.hook import HookManager
-from triton.profiler.hooks.launch import LaunchHook
-from triton.profiler.hooks.instrumentation import InstrumentationHook
-from triton.profiler.metric import transform_tensor_metrics
-from triton._internal_testing import is_hip
+from tokenspeed_triton.profiler.hooks.hook import HookManager
+from tokenspeed_triton.profiler.hooks.launch import LaunchHook
+from tokenspeed_triton.profiler.hooks.instrumentation import InstrumentationHook
+from tokenspeed_triton.profiler.metric import transform_tensor_metrics
+from tokenspeed_triton._internal_testing import is_hip
 
 
 def test_profile_single_session(tmp_path: pathlib.Path):

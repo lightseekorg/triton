@@ -27,7 +27,7 @@ def device(request):
 
 @pytest.fixture
 def fresh_knobs():
-    from triton._internal_testing import _fresh_knobs_impl
+    from tokenspeed_triton._internal_testing import _fresh_knobs_impl
 
     # TheRock installs ROCm libraries outside the system loader paths. Proton
     # selects their absolute paths at import time, so keep those selections

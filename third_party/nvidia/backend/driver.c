@@ -58,7 +58,7 @@ static void PyKernelArg_free(void *ptr) { free(ptr); }
 
 static PyTypeObject PyKernelArgType = {
     PyVarObject_HEAD_INIT(NULL, 0).tp_name =
-        "triton.backends.nvidia.PyKernelArg",
+        "tokenspeed_triton.backends.nvidia.PyKernelArg",
     .tp_basicsize = sizeof(PyKernelArgObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
@@ -533,7 +533,7 @@ static void PyCUtensorMap_free(void *ptr) { free(ptr); }
 // clang-format off
 static PyTypeObject PyCUtensorMapType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "triton.backends.nvidia.PyCUtensorMap",
+    .tp_name = "tokenspeed_triton.backends.nvidia.PyCUtensorMap",
     .tp_basicsize = sizeof(PyCUtensorMapObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
