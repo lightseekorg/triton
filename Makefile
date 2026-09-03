@@ -61,8 +61,7 @@ test-microbenchmark: all
 	$(PYTHON) python/test/microbenchmark/launch_overhead.py
 
 .PHONY: test-interpret
-test-interpret: all
-	cd python/test/unit && TRITON_CI_CACHE_PHASE=interpreter TRITON_INTERPRET=1 $(PYTEST) -n 16 -m interpreter cuda language/test_core.py language/test_standard.py \
+	cd python/test/unit && TRITON_INTERPRET=1 $(PYTEST) -n 16 -m interpreter cuda language/test_core.py language/test_standard.py \
 		language/test_random.py language/test_subprocess.py language/test_line_info.py \
 		language/test_tuple.py runtime/test_launch.py runtime/test_autotuner.py::test_kwargs[False] \
 		../../tutorials/06-fused-attention.py::test_op --device=cpu
