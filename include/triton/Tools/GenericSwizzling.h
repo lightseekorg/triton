@@ -23,8 +23,9 @@ struct LocalMemOpTile {
   // If laneContig.size() < log2(128/bitwidth), we assume that
   // the first log2(128/bitwidth) - laneContig.size() bases are registers
   llvm::SmallVector<int32_t> laneContig;
-  // If laneAddr.size() < 3, we assume that the first
-  // 3 - laneAddr.size() bases are registers
+  // Lane basis indices used to construct the instruction's physical address
+  // layout. If laneAddr.size() < 3, we assume that the first
+  // 3 - laneAddr.size() bases are registers.
   llvm::SmallVector<int32_t> laneAddr;
   // A set of bitmasks representing the basis vectors whose span defines the
   // phase 0 lane ID subspace. This is used to track which parallel lane

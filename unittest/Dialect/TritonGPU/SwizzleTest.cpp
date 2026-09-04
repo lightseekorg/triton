@@ -452,10 +452,10 @@ TEST_F(SwizzleTest, Test64x128F16BlockedLinear32Bank) {
       /*requireSurjective=*/true);
   auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/16, /*numBanks*/ 32,
                                    /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 20}});
+                                   /*dstTile*/ {{}, {0, 1, 4}, {1, 2, 20}});
   auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/16,
                                   /*numBanks*/ 32, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 20}});
+                                  /*dstTile*/ {{}, {0, 1, 4}, {1, 2, 20}});
   EXPECT_EQ(r, 0);
   EXPECT_EQ(w, 0);
 }
@@ -478,10 +478,18 @@ TEST_F(SwizzleTest, Test64x128F16BlockedMfma64Bank) {
       /*requireSurjective=*/true);
   auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/16,
                                    /*numBanks*/ 64, /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
+                                   /*dstTile*/
+                                   {{}, {0, 1, 3, 4}, {1, 2, 12, 20}});
+  auto smemWithoutLaneMask = optimalSwizzlingLdSt(
+      src, dst, /*bitwidth=*/16, /*numBanks*/ 64, /*srcTile*/ {},
+      /*dstTile*/ {{}, {0, 1, 3, 4}, {}});
   auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/16,
                                   /*numBanks*/ 64, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
+                                  /*dstTile*/
+                                  {{}, {0, 1, 3, 4}, {1, 2, 12, 20}});
+  // laneMask describes concurrent accesses for conflict accounting. It must
+  // not change the physical shared-memory layout.
+  EXPECT_EQ(smem, smemWithoutLaneMask);
   EXPECT_EQ(r, 0);
   EXPECT_EQ(w, 0);
 }
@@ -501,11 +509,13 @@ TEST_F(SwizzleTest, Test1024F32WarpSwapped32Bank) {
                    /*requireSurjective=*/true);
   auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/32,
                                    /*numBanks*/ 32, /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 20}});
+                                   /*dstTile*/ {{}, {0, 1, 4}, {1, 2, 20}});
   auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/32,
                                   /*numBanks*/ 32, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 20}});
-  EXPECT_EQ(r, 0);
+                                  /*dstTile*/ {{}, {0, 1, 4}, {1, 2, 20}});
+  // Respecting the DS_READ_B128 lane address pattern leaves a two-way read
+  // conflict for this synthetic warp-swapped conversion.
+  EXPECT_EQ(r, 1);
   EXPECT_EQ(w, 0);
 }
 
@@ -524,11 +534,15 @@ TEST_F(SwizzleTest, Test1024F32WarpSwapped64Bank) {
                    /*requireSurjective=*/true);
   auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/32,
                                    /*numBanks*/ 64, /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
+                                   /*dstTile*/
+                                   {{}, {0, 1, 3, 4}, {1, 2, 12, 20}});
   auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/32,
                                   /*numBanks*/ 64, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
-  EXPECT_EQ(r, 0);
+                                  /*dstTile*/
+                                  {{}, {0, 1, 3, 4}, {1, 2, 12, 20}});
+  // Respecting the DS_READ_B128 lane address pattern leaves a two-way read
+  // conflict for this synthetic warp-swapped conversion.
+  EXPECT_EQ(r, 1);
   EXPECT_EQ(w, 0);
 }
 
@@ -652,7 +666,7 @@ TEST_F(BankConflictTest, bankConflictsWavefront64) {
        {128, 128},
        16,
        32,
-       /*vec=4*/ {{}, {}, {1, 2, 20}}},
+       /*vec=4*/ {{}, {0, 1, 4}, {1, 2, 20}}},
       {blocked({1, 8}, {4, 16}, {4, 1}, {1, 0}),
        mlir::triton::gpu::SwizzledSharedEncodingAttr::get(
            &ctx, 8, 1, 16, {1, 0},
@@ -660,7 +674,7 @@ TEST_F(BankConflictTest, bankConflictsWavefront64) {
        {128, 128},
        16,
        64,
-       /*vec=4*/ {{}, {}, {1, 2, 12, 20}}},
+       /*vec=4*/ {{}, {0, 1, 3, 4}, {1, 2, 12, 20}}},
       {dotAV3,
        mlir::triton::gpu::SwizzledSharedEncodingAttr::get(
            &ctx, 4, 1, 16, {1, 0},
@@ -676,7 +690,7 @@ TEST_F(BankConflictTest, bankConflictsWavefront64) {
        {128, 128},
        16,
        64,
-       /*vec=4*/ {{}, {}, {1, 2, 12, 20}}},
+       /*vec=4*/ {{}, {0, 1, 3, 4}, {1, 2, 12, 20}}},
       {dotBV3,
        AMDRotatingShared(/*vec=*/4, /*perPhase=*/1, /*maxPhase=*/16,
                          /*order=*/{0, 1}),
