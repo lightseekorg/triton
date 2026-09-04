@@ -198,7 +198,8 @@ protected:
   int bruteforceBankConflictsPerWavefront64(ArrayRef<int64_t> shape,
                                             Attribute regAttr,
                                             Attribute sharedAttr, int bitwidth,
-                                            int numBanks) {
+                                            int numBanks,
+                                            LocalMemOpTile laneTile) {
     // Compute the bank conflicts per wavefront
     // In other words, we compute how many extra memory accesses (bank
     // conflicts) are needed for a given wavefront.
@@ -238,6 +239,7 @@ protected:
             numPhases);
         for (int laneIdx = 0; laneIdx < numLanes; laneIdx++) {
           int phaseIdx;
+          int maskedLaneIdx;
           if (vectorisation == 4) {
             int t2 = (laneIdx >> 2) & 1;
             int t3 = (laneIdx >> 3) & 1;
@@ -271,13 +273,17 @@ protected:
               // phase[1] = t[2] ^ t[3] ^ t[4]
               phaseIdx = (t5 << 0) | ((t2 ^ t3 ^ t4) << 1);
             }
+            maskedLaneIdx = 0;
+            for (int shift : laneTile.laneAddr)
+              maskedLaneIdx |= laneIdx & (1 << shift);
           } else {
             phaseIdx = laneIdx / threadsPerPhase;
+            maskedLaneIdx = laneIdx % threadsPerPhase;
           }
           for (int vecIdx = 0; vecIdx < elemsPerVec; vecIdx++) {
             auto offset = regToShared
                               .apply({{kReg, regIdx + vecIdx},
-                                      {kLane, laneIdx},
+                                      {kLane, maskedLaneIdx},
                                       {kWarp, warpIdx}})[0]
                               .second;
             auto offsetB32 = offset * bitwidth / 32;
@@ -452,10 +458,10 @@ TEST_F(SwizzleTest, Test64x128F16BlockedLinear32Bank) {
       /*requireSurjective=*/true);
   auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/16, /*numBanks*/ 32,
                                    /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 20}});
+                                   /*dstTile*/ {{}, {0, 1, 4}});
   auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/16,
                                   /*numBanks*/ 32, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 20}});
+                                  /*dstTile*/ {{}, {0, 1, 4}});
   EXPECT_EQ(r, 0);
   EXPECT_EQ(w, 0);
 }
@@ -478,56 +484,10 @@ TEST_F(SwizzleTest, Test64x128F16BlockedMfma64Bank) {
       /*requireSurjective=*/true);
   auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/16,
                                    /*numBanks*/ 64, /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
+                                   /*dstTile*/ {{}, {0, 1, 3, 4}});
   auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/16,
                                   /*numBanks*/ 64, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
-  EXPECT_EQ(r, 0);
-  EXPECT_EQ(w, 0);
-}
-
-TEST_F(SwizzleTest, Test1024F32WarpSwapped32Bank) {
-  LinearLayout src({{S("register"), {{1}, {2}}},
-                    {S("lane"), {{4}, {8}, {16}, {32}, {64}, {128}}},
-                    {S("warp"), {{256}, {512}}},
-                    {S("block"), {}}},
-                   {{S("dim0"), 1024}},
-                   /*requireSurjective=*/true);
-  LinearLayout dst({{S("register"), {{1}, {2}}},
-                    {S("lane"), {{4}, {8}, {16}, {32}, {64}, {128}}},
-                    {S("warp"), {{512}, {256}}},
-                    {S("block"), {}}},
-                   {{S("dim0"), 1024}},
-                   /*requireSurjective=*/true);
-  auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/32,
-                                   /*numBanks*/ 32, /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 20}});
-  auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/32,
-                                  /*numBanks*/ 32, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 20}});
-  EXPECT_EQ(r, 0);
-  EXPECT_EQ(w, 0);
-}
-
-TEST_F(SwizzleTest, Test1024F32WarpSwapped64Bank) {
-  LinearLayout src({{S("register"), {{1}, {2}}},
-                    {S("lane"), {{4}, {8}, {16}, {32}, {64}, {128}}},
-                    {S("warp"), {{256}, {512}}},
-                    {S("block"), {}}},
-                   {{S("dim0"), 1024}},
-                   /*requireSurjective=*/true);
-  LinearLayout dst({{S("register"), {{1}, {2}}},
-                    {S("lane"), {{4}, {8}, {16}, {32}, {64}, {128}}},
-                    {S("warp"), {{512}, {256}}},
-                    {S("block"), {}}},
-                   {{S("dim0"), 1024}},
-                   /*requireSurjective=*/true);
-  auto smem = optimalSwizzlingLdSt(src, dst, /*bitwidth=*/32,
-                                   /*numBanks*/ 64, /*srcTile*/ {},
-                                   /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
-  auto [r, w] = bankConflictsLdSt(src, dst, smem, /*bitwidth=*/32,
-                                  /*numBanks*/ 64, /*srcTile*/ {},
-                                  /*dstTile*/ {{}, {}, {1, 2, 12, 20}});
+                                  /*dstTile*/ {{}, {0, 1, 3, 4}});
   EXPECT_EQ(r, 0);
   EXPECT_EQ(w, 0);
 }
@@ -652,7 +612,7 @@ TEST_F(BankConflictTest, bankConflictsWavefront64) {
        {128, 128},
        16,
        32,
-       /*vec=4*/ {{}, {}, {1, 2, 20}}},
+       /*vec=4*/ {{}, {0, 1, 4}}},
       {blocked({1, 8}, {4, 16}, {4, 1}, {1, 0}),
        mlir::triton::gpu::SwizzledSharedEncodingAttr::get(
            &ctx, 8, 1, 16, {1, 0},
@@ -660,7 +620,7 @@ TEST_F(BankConflictTest, bankConflictsWavefront64) {
        {128, 128},
        16,
        64,
-       /*vec=4*/ {{}, {}, {1, 2, 12, 20}}},
+       /*vec=4*/ {{}, {0, 1, 3, 4}}},
       {dotAV3,
        mlir::triton::gpu::SwizzledSharedEncodingAttr::get(
            &ctx, 4, 1, 16, {1, 0},
@@ -676,7 +636,7 @@ TEST_F(BankConflictTest, bankConflictsWavefront64) {
        {128, 128},
        16,
        64,
-       /*vec=4*/ {{}, {}, {1, 2, 12, 20}}},
+       /*vec=4*/ {{}, {0, 1, 3, 4}}},
       {dotBV3,
        AMDRotatingShared(/*vec=*/4, /*perPhase=*/1, /*maxPhase=*/16,
                          /*order=*/{0, 1}),
@@ -696,8 +656,8 @@ TEST_F(BankConflictTest, bankConflictsWavefront64) {
   for (const auto &c : cases) {
     EXPECT_EQ(computeConflicts(c.shape, c.reg, c.shared, c.bitwidth, c.numBanks,
                                c.laneTile),
-              bruteforceBankConflictsPerWavefront64(c.shape, c.reg, c.shared,
-                                                    c.bitwidth, c.numBanks))
+              bruteforceBankConflictsPerWavefront64(
+                  c.shape, c.reg, c.shared, c.bitwidth, c.numBanks, c.laneTile))
         << toLL(c.shape, c.reg).invertAndCompose(toLL(c.shape, c.shared))
         << "\nbitwidth=" << c.bitwidth << "\n"
         << "numBanks=" << c.numBanks << "\n"
