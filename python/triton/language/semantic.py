@@ -1902,12 +1902,12 @@ class TritonSemantic(Generic[TensorTy]):
             if isinstance(elem.value, bool):
                 return self.builder.get_int1(elem.value)
             if require_i64:
-                assert -2**63 <= elem.value < 2**63, \
-                    f"Expected a signed 64-bit integer, but {elem.value} is out of range"
+                assert -2**63 <= elem.value < 2**63, f"Block pointers only support 64 bit `shape/strides`, " \
+                    f"got a value {elem.value} which is out of the range"
                 return self.builder.get_int64(elem.value)
             else:
-                assert -2**31 <= elem.value < 2**31, \
-                    f"Expected a signed 32-bit integer, but {elem.value} is out of range"
+                assert -2**31 <= elem.value < 2**31, f"Block pointers only support 32 bit `offsets/block_shape`, " \
+                    f"got a value {elem.value} which is out of the range"
                 return self.builder.get_int32(elem.value)
         elif isinstance(elem, tl.tensor):
             assert elem.numel.value == 1, "Expected a scalar in shape/strides/offsets"
@@ -1916,7 +1916,8 @@ class TritonSemantic(Generic[TensorTy]):
                 return self.builder.create_int_cast(elem.handle, self.builder.get_int64_ty(),
                                                     elem.dtype.is_int_signed())
             elif elem.dtype == tl.int64 and not require_i64:
-                assert False, "Expected a 32-bit integer; add a `.to(tl.int32)` to convert the value"
+                assert False, "Block pointers only support 32 bit `offsets/block_shape`, " \
+                    "add a `.to(tl.int32)` or use regular indexing for 64 bit support"
             return elem.handle
         assert False, f"Unsupported element type in shape/strides/offsets: {type(elem)}"
 
