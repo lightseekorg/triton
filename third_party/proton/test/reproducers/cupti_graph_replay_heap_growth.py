@@ -694,10 +694,10 @@ def _run_single(args: argparse.Namespace) -> int:
     _configure_cupti_env(args.cupti_dir)
 
     import torch
-    import triton
-    import triton.language as tl
-    import triton.profiler as proton
-    from triton.testing import cuda_graph_without_gc
+    import tokenspeed_triton as triton
+    import tokenspeed_triton.language as tl
+    import tokenspeed_triton.profiler as proton
+    from tokenspeed_triton.testing import cuda_graph_without_gc
 
     torch.cuda.set_device(args.device)
     device = torch.device(f"cuda:{args.device}")

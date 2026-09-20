@@ -22,12 +22,12 @@ Open the resulting ``*.chrome_trace`` file in Perfetto or
 import argparse
 
 import torch
-import triton
-import triton.profiler as proton
-import triton.profiler.language as pl
-from triton.experimental import gluon
-from triton.experimental.gluon import language as gl
-from triton.experimental.gluon.language.nvidia.blackwell import (
+import tokenspeed_triton as triton
+import tokenspeed_triton.profiler as proton
+import tokenspeed_triton.profiler.language as pl
+from tokenspeed_triton.experimental import gluon
+from tokenspeed_triton.experimental.gluon import language as gl
+from tokenspeed_triton.experimental.gluon.language.nvidia.blackwell import (
     TensorMemoryLayout,
     allocate_tensor_memory,
     fence_async_shared,
@@ -36,7 +36,7 @@ from triton.experimental.gluon.language.nvidia.blackwell import (
     tcgen05_mma,
     tma,
 )
-from triton.experimental.gluon.nvidia.hopper import TensorDescriptor
+from tokenspeed_triton.experimental.gluon.nvidia.hopper import TensorDescriptor
 
 
 def is_blackwell():

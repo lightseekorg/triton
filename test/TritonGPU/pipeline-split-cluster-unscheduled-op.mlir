@@ -1,4 +1,4 @@
-// RUN: not --crash triton-opt %s -split-input-file -allow-unregistered-dialect -tritongpu-test-pipeline-lower-loop 2>&1 | FileCheck %s
+// RUN: triton-opt %s -split-input-file -allow-unregistered-dialect -tritongpu-test-pipeline-lower-loop 2>&1 | FileCheck %s
 
 // Regression test for the `CoarseSchedule::splitClusterBefore`
 // implicit-insert bug.

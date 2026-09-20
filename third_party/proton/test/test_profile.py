@@ -9,8 +9,8 @@ import pathlib
 import subprocess
 import sys
 
-import triton
-import triton.profiler as proton
+import tokenspeed_triton as triton
+import tokenspeed_triton.profiler as proton
 import torch
 import json
 import pytest
@@ -18,12 +18,12 @@ from typing import NamedTuple
 import threading
 import time
 
-import triton.language as tl
-import triton.profiler.hooks.launch as proton_launch
-from triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
-import triton.profiler.viewer as viewer
-from triton._internal_testing import is_hip, is_cuda, is_blackwell
-from triton.testing import cuda_graph_without_gc
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler.hooks.launch as proton_launch
+from tokenspeed_triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
+import tokenspeed_triton.profiler.viewer as viewer
+from tokenspeed_triton._internal_testing import is_hip, is_cuda, is_blackwell
+from tokenspeed_triton.testing import cuda_graph_without_gc
 from subprocess_utils import clean_rocprofiler_env
 
 
@@ -52,9 +52,9 @@ def test_rocprofiler_process_exit_without_finalize(tmp_path: pathlib.Path, captu
     script = tmp_path / "unfinalized_rocprofiler.py"
     output = tmp_path / "unfinalized_rocprofiler"
     script.write_text(f"""
-import triton.profiler as proton
-import triton
-import triton.language as tl
+import tokenspeed_triton.profiler as proton
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
 import torch
 
 
@@ -98,9 +98,9 @@ for _ in range(100):
 def test_rocprofiler_graph_session_exit(tmp_path: pathlib.Path, num_sessions: int):
     script = tmp_path / "rocprofiler_graph_sessions.py"
     script.write_text(f"""
-import triton.profiler as proton
-import triton
-import triton.language as tl
+import tokenspeed_triton.profiler as proton
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
 
 
 @triton.jit
@@ -1069,7 +1069,7 @@ def test_pcsampling(tmp_path: pathlib.Path, device: str):
         pytest.skip("PC sampling test is disabled")
     expect_source_attribution = True
     if is_hip():
-        from triton._C.libproton import proton as libproton
+        from tokenspeed_triton._C.libproton import proton as libproton
 
         expect_source_attribution = libproton.has_amd_pc_sampling_source_locations()
 

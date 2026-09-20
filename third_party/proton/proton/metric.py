@@ -1,9 +1,9 @@
 from typing import Any
-from triton._C.libproton import proton as libproton
-import triton.runtime.driver as driver
-import triton.language as tl
-import triton
-from triton import MockTensor
+from tokenspeed_triton._C.libproton import proton as libproton
+import tokenspeed_triton.runtime.driver as driver
+import tokenspeed_triton.language as tl
+import tokenspeed_triton as triton
+from tokenspeed_triton import MockTensor
 
 
 @triton.jit

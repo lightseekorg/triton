@@ -1,11 +1,12 @@
 import os
-import pytest
 import shutil
-import triton
 from concurrent.futures import ThreadPoolExecutor
-from triton._internal_testing import is_hip
-
 from pathlib import Path
+
+import pytest
+
+import tokenspeed_triton as triton
+from tokenspeed_triton._internal_testing import is_hip
 
 
 def test_knobs_utils(fresh_knobs) -> None:
@@ -70,8 +71,8 @@ def test_knobs_utils(fresh_knobs) -> None:
 
 
 def _register_pressure_scheduler_kernel():
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.nvidia import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.nvidia import compiler
 
     compiler.llvm.init_targets()
     backend = compiler.CUDABackend(GPUTarget("cuda", 90, 32))
@@ -130,8 +131,8 @@ def test_nvidia_register_pressure_scheduler_concurrent():
 
 
 def _nvidia_short_pointer_kernel():
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.nvidia import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.nvidia import compiler
 
     compiler.llvm.init_targets()
     backend = compiler.CUDABackend(GPUTarget("cuda", 90, 32))
@@ -151,7 +152,7 @@ define ptx_kernel void @short_pointer_kernel(ptr addrspace(1) %out, i64 %offset)
 @pytest.mark.skipif(is_hip(), reason="NVPTX code generation is unavailable on AMD")
 @pytest.mark.parametrize("link_hip_first", [False, True])
 def test_nvidia_short_pointer_option(link_hip_first, fresh_triton_cache):
-    from triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.compiler import GPUTarget
 
     if link_hip_first:
         # HIP linking resets every LLVM command-line option.
@@ -173,7 +174,7 @@ def test_nvidia_short_pointer_option(link_hip_first, fresh_triton_cache):
 
 
 def _compile_empty_hip_kernel(arch, warp_size):
-    from triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.compiler import GPUTarget
 
     @triton.jit
     def empty_kernel():
@@ -203,8 +204,8 @@ def _amd_scheduler_kernel():
 
 
 def test_amd_llvm_options_concurrent():
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     compiler.llvm.init_targets()
     source = _amd_scheduler_kernel()
@@ -241,8 +242,8 @@ def test_amd_llvm_options_concurrent():
 ])
 def test_amd_codegen_options(arch, enable_fp_fusion, disable_opt, expected_flags, disable_optimization, fresh_knobs,
                              monkeypatch):
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     calls = []
 
@@ -278,7 +279,7 @@ def test_amd_codegen_options(arch, enable_fp_fusion, disable_opt, expected_flags
 
 
 def test_amd_codegen_path_override(fresh_knobs, monkeypatch):
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.amd import compiler
 
     monkeypatch.delenv("TRITON_AMD_CODEGEN_PATH", raising=False)
     library = Path(compiler.get_amd_codegen_path())
@@ -290,8 +291,8 @@ def test_amd_codegen_path_override(fresh_knobs, monkeypatch):
 
 
 def test_amd_codegen_revision_invalidates_backend_hash(fresh_knobs, monkeypatch):
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     monkeypatch.setattr(compiler, "get_amd_codegen_revision", lambda: "first-revision-1")
     backend = compiler.HIPBackend(GPUTarget("hip", "gfx942", 64))
@@ -305,8 +306,8 @@ def test_amd_codegen_revision_invalidates_backend_hash(fresh_knobs, monkeypatch)
 
 
 def test_amd_codegen_inlines_functions_from_bitcode(fresh_knobs, monkeypatch):
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     source = '''
 target triple = "amdgcn-amd-amdhsa"
@@ -345,7 +346,7 @@ define amdgpu_kernel void @inline_kernel(ptr addrspace(1) %out, i32 %value) {
 
 @pytest.mark.parametrize("option", ["dump_ir", "enable_timing"])
 def test_amd_codegen_options_restored(option, capfd, fresh_knobs):
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.amd import compiler
 
     source = "define amdgpu_kernel void @test_kernel() { ret void }"
     options = dict(flags=[], enable_fp_fusion=True, disable_optimization=False, canonicalize_gep=False,
@@ -360,8 +361,8 @@ def test_amd_codegen_options_restored(option, capfd, fresh_knobs):
 
 
 def test_amd_codegen_reports_invalid_llvm_ir(fresh_knobs):
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     source = "define amdgpu_kernel void @invalid_kernel() { invalid }"
     backend = compiler.HIPBackend(GPUTarget("hip", "gfx942", 64))
@@ -370,8 +371,8 @@ def test_amd_codegen_reports_invalid_llvm_ir(fresh_knobs):
 
 
 def test_amd_codegen_assembles_object_with_private_llvm(fresh_knobs):
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     source = '''
 target triple = "amdgcn-amd-amdhsa"
@@ -389,8 +390,8 @@ define amdgpu_kernel void @object_kernel() {
 
 @pytest.mark.parametrize("enabled", [False, True])
 def test_amd_codegen_respects_mir_dump_knob(enabled, fresh_knobs, monkeypatch, tmp_path):
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     events = []
     monkeypatch.setattr(compiler.llvm, "translate_to_mir", lambda *args: events.append("mir"))
@@ -410,8 +411,8 @@ def test_amd_codegen_respects_mir_dump_knob(enabled, fresh_knobs, monkeypatch, t
 
 
 def test_amd_codegen_preserves_mir_replacement(fresh_knobs, monkeypatch):
-    from triton.backends.compiler import GPUTarget
-    from triton.backends.amd import compiler
+    from tokenspeed_triton.backends.compiler import GPUTarget
+    from tokenspeed_triton.backends.amd import compiler
 
     replacement_calls = []
 
@@ -488,7 +489,7 @@ def test_read_env(truthy, falsey, fresh_knobs_including_libraries, monkeypatch):
     # str defaulting to None
     assert fresh_knobs.compilation.use_ir_loc is None
     # str defaulting to not None
-    assert fresh_knobs.cache.dir.endswith(".triton/cache")
+    assert fresh_knobs.cache.dir.endswith(".triton/tokenspeed-cache")
     # class defaulting to None
     assert fresh_knobs.cache.manager_class is None
     # set[str] defaulting to empty
@@ -512,7 +513,7 @@ def test_read_env(truthy, falsey, fresh_knobs_including_libraries, monkeypatch):
     assert fresh_knobs.cache.dump_dir == "/tmp/triton_home/.triton/dump"
     assert fresh_knobs.cache.override_dir == "/tmp/triton_home/.triton/override"
 
-    from triton.runtime.cache import FileCacheManager
+    from tokenspeed_triton.runtime.cache import FileCacheManager
 
     assert fresh_knobs.cache.manager_class == FileCacheManager
 
@@ -522,24 +523,24 @@ def test_read_env(truthy, falsey, fresh_knobs_including_libraries, monkeypatch):
 def test_triton_home(fresh_knobs, monkeypatch):
     initial_home = fresh_knobs.cache.home_dir
     assert initial_home == os.path.expanduser("~/")
-    assert fresh_knobs.cache.dir == os.path.join(initial_home, ".triton/cache")
+    assert fresh_knobs.cache.dir == os.path.join(initial_home, ".triton/tokenspeed-cache")
     assert fresh_knobs.cache.dump_dir == os.path.join(initial_home, ".triton/dump")
     assert fresh_knobs.cache.override_dir == os.path.join(initial_home, ".triton/override")
 
     monkeypatch.setenv("TRITON_HOME", "/tmp/triton_home")
-    assert fresh_knobs.cache.dir == "/tmp/triton_home/.triton/cache"
+    assert fresh_knobs.cache.dir == "/tmp/triton_home/.triton/tokenspeed-cache"
     assert fresh_knobs.cache.dump_dir == "/tmp/triton_home/.triton/dump"
     assert fresh_knobs.cache.override_dir == "/tmp/triton_home/.triton/override"
 
     fresh_knobs.cache.home_dir = "/tmp/user/triton_home"
-    assert fresh_knobs.cache.dir == "/tmp/user/triton_home/.triton/cache"
+    assert fresh_knobs.cache.dir == "/tmp/user/triton_home/.triton/tokenspeed-cache"
     assert fresh_knobs.cache.dump_dir == "/tmp/user/triton_home/.triton/dump"
     assert fresh_knobs.cache.override_dir == "/tmp/user/triton_home/.triton/override"
 
 
 def test_set_knob_directly(fresh_knobs_including_libraries, monkeypatch):
     fresh_knobs = fresh_knobs_including_libraries
-    assert fresh_knobs.cache.dir.endswith(".triton/cache")
+    assert fresh_knobs.cache.dir.endswith(".triton/tokenspeed-cache")
 
     fresh_knobs.cache.dir = "/tmp/triton_cache"
     assert fresh_knobs.cache.dir == "/tmp/triton_cache"
@@ -565,7 +566,7 @@ def test_set_knob_directly(fresh_knobs_including_libraries, monkeypatch):
     fresh_knobs.redis.port = 6380
     fresh_knobs.nvidia.mock_ptx_version = "42.0.1"
 
-    from triton.runtime.cache import FileCacheManager
+    from tokenspeed_triton.runtime.cache import FileCacheManager
 
     class TestManagerClass(FileCacheManager):
         pass

@@ -4,15 +4,15 @@ import argparse
 import hashlib
 import io
 import json
-import pytest
+import os
 import tarfile
 import tempfile
-
 from pathlib import Path
 
-import triton
+import pytest
 
-from triton.runtime.build import compile_module_from_src
+import tokenspeed_triton as triton
+from tokenspeed_triton.runtime.build import compile_module_from_src
 
 TEST_MODULE_C = """
 #include <Python.h>
@@ -154,3 +154,40 @@ def test_amd_codegen_download_mirror(artifact, mirror, monkeypatch, tmp_path):
         "https://oaitriton.blob.core.windows.net/public/llvm-builds")
     assert downloads == [f"{base}/{name}.tar.gz"]
     assert result.read_bytes() == contents
+
+
+def test_amd_codegen_bootstrap_build_flags(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3]))
+    import build_helpers
+
+    llvm_path = tmp_path / "llvm"
+    for path in [llvm_path / "bin" / "clang", llvm_path / "bin" / "clang++"]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    source_path = tmp_path / "third_party" / "amd" / "backend" / "codegen"
+    source_path.mkdir(parents=True)
+    devtoolset_root = tmp_path / "devtoolset"
+    (devtoolset_root / "usr").mkdir(parents=True)
+
+    parser = argparse.ArgumentParser()
+    build_helpers.add_common_args(parser)
+    args = build_helpers.normalize_parsed_args(
+        parser.parse_args(["--triton-cache-path", str(tmp_path / "cache")]))
+    monkeypatch.setattr(build_helpers, "download_codegen_llvm", lambda *_: str(llvm_path))
+    monkeypatch.setattr(build_helpers, "get_base_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(build_helpers, "get_llvm_system_suffix", lambda _: "almalinux-x64")
+    commands = []
+    monkeypatch.setattr(build_helpers.subprocess, "check_call", commands.append)
+    monkeypatch.setenv("TRITON_BUILD_WITH_CLANG_LLD", "1")
+    monkeypatch.setenv("DEVTOOLSET_ROOTPATH", str(devtoolset_root))
+
+    build_helpers.build_amd_codegen({"llvm_hash": "123456789abcdef", "build_number": 1}, args)
+
+    configure = commands[0]
+    assert "-DCMAKE_LINKER=lld" in configure
+    assert "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld" in configure
+    assert "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld" in configure
+    assert f"-DCMAKE_CXX_FLAGS=--gcc-toolchain={devtoolset_root / 'usr'}" in configure
+    assert ("-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -Wl,--gc-sections,--icf=safe "
+            "-static-libstdc++ -static-libgcc") in configure
+    assert os.path.join(str(llvm_path), "bin", "clang") in " ".join(configure)

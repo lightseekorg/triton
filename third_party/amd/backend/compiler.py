@@ -1,7 +1,7 @@
-from triton.backends.compiler import BaseBackend, GPUTarget, Language
-from triton._C.libtriton import ir, passes, llvm, amd
-from triton import knobs
-from triton._instrumentation import instrument as _instrument, is_enabled
+from tokenspeed_triton.backends.compiler import BaseBackend, GPUTarget, Language
+from tokenspeed_triton._C.libtriton import ir, passes, llvm, amd
+from tokenspeed_triton import knobs
+from tokenspeed_triton._instrumentation import instrument as _instrument, is_enabled
 from dataclasses import dataclass
 import ctypes
 from typing import Any, Dict, Tuple
@@ -341,9 +341,9 @@ class HIPBackend(BaseBackend):
         return {"min_dot_size": get_min_dot_size(self.target)}
 
     def get_module_map(self) -> Dict[str, ModuleType]:
-        from triton.language.extra.hip import libdevice
+        from tokenspeed_triton.language.extra.hip import libdevice
 
-        return {"triton.language.extra.libdevice": libdevice}
+        return {"tokenspeed_triton.language.extra.libdevice": libdevice}
 
     def load_dialects(self, ctx):
         amd.load_dialects(ctx)
