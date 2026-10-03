@@ -10,7 +10,7 @@ import custom_stages
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 
 # Extend dialects and passes with the passed plugin.
-LIB = 'python/triton/plugins/libMLIRDialectPlugin.so'
+LIB = 'python/tokenspeed_triton/plugins/libMLIRDialectPlugin.so'
 triton._C.libtriton.ir.extend_dialects_with(LIB)
 triton._C.libtriton.passes.plugin.extend_with(LIB)
 

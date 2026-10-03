@@ -2,14 +2,15 @@ import functools
 import os
 import platform
 import subprocess
-import triton
 from pathlib import Path
-from triton import knobs
-from triton._C.libtriton import amd
-from triton.backends.compiler import GPUTarget
-from triton.backends.driver import GPUDriver, decompose_descriptor, expand_signature, wrap_handle_tensordesc_impl
-from triton.runtime import _allocation
-from triton.runtime.build import compile_module_from_src
+
+import tokenspeed_triton as triton
+from tokenspeed_triton import knobs
+from tokenspeed_triton._C.libtriton import amd
+from tokenspeed_triton.backends.compiler import GPUTarget
+from tokenspeed_triton.backends.driver import GPUDriver, decompose_descriptor, expand_signature, wrap_handle_tensordesc_impl
+from tokenspeed_triton.runtime import _allocation
+from tokenspeed_triton.runtime.build import compile_module_from_src
 
 dirname = os.path.dirname(os.path.realpath(__file__))
 include_dirs = [os.path.join(dirname, "include")]
@@ -381,7 +382,7 @@ class HIPDriver(GPUDriver):
         return torch.device("cuda", self.get_current_device())
 
     def get_benchmarker(self):
-        from triton.testing import do_bench
+        from tokenspeed_triton.testing import do_bench
         return do_bench
 
     def get_empty_cache_for_benchmark(self):

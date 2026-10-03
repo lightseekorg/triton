@@ -148,21 +148,24 @@ void init_type_handler_cache();
 
 bool init_globals() noexcept try {
   // Import releavant symbols
-  jit_callable_cls = import_from("triton.runtime.jit", "JITCallable");
-  tensor_descriptor_cls =
-      import_from("triton.tools.tensor_descriptor", "TensorDescriptor");
+  jit_callable_cls =
+      import_from("tokenspeed_triton.runtime.jit", "JITCallable");
+  tensor_descriptor_cls = import_from(
+      "tokenspeed_triton.tools.tensor_descriptor", "TensorDescriptor");
   nvidia_tensor_descriptor_cls = import_from(
-      "triton.experimental.gluon.nvidia.hopper", "TensorDescriptor");
-  nvidia_tensor_descriptor_im2col_cls = import_from(
-      "triton.experimental.gluon.nvidia.hopper", "TensorDescriptorIm2Col");
-  amd_tensor_descriptor_cls =
-      import_from("triton.experimental.gluon.amd.cdna5", "TensorDescriptor");
+      "tokenspeed_triton.experimental.gluon.nvidia.hopper", "TensorDescriptor");
+  nvidia_tensor_descriptor_im2col_cls =
+      import_from("tokenspeed_triton.experimental.gluon.nvidia.hopper",
+                  "TensorDescriptorIm2Col");
+  amd_tensor_descriptor_cls = import_from(
+      "tokenspeed_triton.experimental.gluon.amd.cdna5", "TensorDescriptor");
 
-  auto m_canonicalize = py::module_::import_("triton._utils");
-  canonicalize_dtype_fn = import_from("triton._utils", "canonicalize_dtype");
+  auto m_canonicalize = py::module_::import_("tokenspeed_triton._utils");
+  canonicalize_dtype_fn =
+      import_from("tokenspeed_triton._utils", "canonicalize_dtype");
   canonicalize_ptr_dtype_fn =
-      import_from("triton._utils", "canonicalize_ptr_dtype");
-  constexpr_cls = import_from("triton.language", "constexpr");
+      import_from("tokenspeed_triton._utils", "canonicalize_ptr_dtype");
+  constexpr_cls = import_from("tokenspeed_triton.language", "constexpr");
 
   PyObject *loaded_modules = PyImport_GetModuleDict();
   PyObject *torch_module = PyDict_GetItemString(loaded_modules, "torch");

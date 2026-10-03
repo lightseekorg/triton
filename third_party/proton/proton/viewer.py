@@ -9,9 +9,9 @@ try:
 except ImportError:
     raise ImportError("Failed to import hatchet. `pip install llnl-hatchet` to get the correct version.")
 import numpy as np
-from triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
-from triton.profiler.metric import FLOPS_WIDTHS
-from triton.profiler import specs
+from tokenspeed_triton.profiler.state import COMPUTE_METADATA_SCOPE_NAME
+from tokenspeed_triton.profiler.metric import FLOPS_WIDTHS
+from tokenspeed_triton.profiler import specs
 
 
 def match_available_metrics(metrics, inclusive_metrics, exclusive_metrics):

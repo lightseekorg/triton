@@ -1,15 +1,15 @@
 from typing import Dict, Optional, Union, Any
 
-import triton
-from triton._C.libtriton import ir as triton_ir
-from triton._C.libtriton import proton as triton_proton
-from triton._C.libtriton import amd as triton_amd
-from triton._C.libtriton import nvidia as triton_nvidia
-from triton._C.libtriton import passes as triton_passes
-from triton._C.libproton import proton as libproton
-from triton.compiler import LazyDict
-from triton._instrumentation import register_instrumentation, unregister_instrumentation
-from triton.runtime._allocation import set_profile_allocator, NullAllocator
+import tokenspeed_triton as triton
+from tokenspeed_triton._C.libtriton import ir as triton_ir
+from tokenspeed_triton._C.libtriton import proton as triton_proton
+from tokenspeed_triton._C.libtriton import amd as triton_amd
+from tokenspeed_triton._C.libtriton import nvidia as triton_nvidia
+from tokenspeed_triton._C.libtriton import passes as triton_passes
+from tokenspeed_triton._C.libproton import proton as libproton
+from tokenspeed_triton.compiler import LazyDict
+from tokenspeed_triton._instrumentation import register_instrumentation, unregister_instrumentation
+from tokenspeed_triton.runtime._allocation import set_profile_allocator, NullAllocator
 
 from .hook import Hook
 from ..flags import flags
