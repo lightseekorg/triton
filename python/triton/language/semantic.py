@@ -1038,14 +1038,19 @@ class TritonSemantic(Generic[TensorTy]):
         return scope
 
     def load(self, ptr: TensorTy, mask: Optional[TensorTy], other: Optional[TensorTy], cache_policy,
-             is_volatile: bool) -> TensorTy:
+             is_volatile: bool, boundary_check: Tuple = (), padding_option: str = "") -> TensorTy:
         cache_policy = cache_policy._to_ir(self.builder)
+        padding = self._str_to_padding_option(padding_option)
         if not ptr.type.scalar.is_ptr():
             raise ValueError(f"Unsupported ptr type {ptr.type.__repr__()} in `tl.load`")
 
-        # Check `mask` and `other` arguments
+        # Check `mask`, `other`, `boundary_check`, and `padding` arguments
         if mask is None and other is not None:
             raise ValueError("`other` cannot be provided without `mask`")
+        if padding or boundary_check:
+            raise ValueError("`padding_option` or `boundary_check` argument is not supported for loading a tensor of"
+                             "pointers or loading a scalar. Because the compiler does not know the boundary; please "
+                             "use block pointers (defined by `make_block_ptr`) instead")
 
         # For a pointer of scalar, check the type of `mask` and `other`
         if not ptr.type.is_block():
@@ -1238,7 +1243,8 @@ class TritonSemantic(Generic[TensorTy]):
             raise ValueError(f"Expected pointer argument to have shape {ptr.shape} but got {ptr_shape}")
         return ptr, val, mask
 
-    def store(self, ptr: TensorTy, val: TensorTy, mask: Optional[TensorTy], cache_policy) -> TensorTy:
+    def store(self, ptr: TensorTy, val: TensorTy, mask: Optional[TensorTy], cache_policy,
+              boundary_check: Tuple = ()) -> TensorTy:
         cache_policy = cache_policy._to_ir(self.builder)
         if ptr.type.is_const() or ptr.type.scalar.is_const():
             raise ValueError("Cannot store to a constant pointer")
@@ -1246,6 +1252,12 @@ class TritonSemantic(Generic[TensorTy]):
         # Store by a tensor of pointers or a pointer of scalar: `block_type<pointer_type<>>` or `pointer_type<>`
         if not ptr.type.scalar.is_ptr():
             raise ValueError(f"Unsupported ptr type {ptr.type.__repr__()} in `tl.store`")
+
+        # Check `boundary_check` argument
+        if boundary_check:
+            raise ValueError("`boundary_check` argument is not supported for storing a tensor of pointers or storing a "
+                             "scalar. Because the compiler does not know the boundary; please use block pointers "
+                             "(defined by `make_block_ptr`) instead")
 
         # For a pointer of scalar, check the type of `val` and `mask`
         if not ptr.type.is_block():
@@ -1944,12 +1956,12 @@ class TritonSemantic(Generic[TensorTy]):
             if isinstance(elem.value, bool):
                 return self.builder.get_int1(elem.value)
             if require_i64:
-                assert -2**63 <= elem.value < 2**63, \
-                    f"Expected a signed 64-bit integer, but {elem.value} is out of range"
+                assert -2**63 <= elem.value < 2**63, f"Block pointers only support 64 bit `shape/strides`, " \
+                    f"got a value {elem.value} which is out of the range"
                 return self.builder.get_int64(elem.value)
             else:
-                assert -2**31 <= elem.value < 2**31, \
-                    f"Expected a signed 32-bit integer, but {elem.value} is out of range"
+                assert -2**31 <= elem.value < 2**31, f"Block pointers only support 32 bit `offsets/block_shape`, " \
+                    f"got a value {elem.value} which is out of the range"
                 return self.builder.get_int32(elem.value)
         elif isinstance(elem, tl.tensor):
             assert elem.numel.value == 1, "Expected a scalar in shape/strides/offsets"
@@ -1958,7 +1970,8 @@ class TritonSemantic(Generic[TensorTy]):
                 return self.builder.create_int_cast(elem.handle, self.builder.get_int64_ty(),
                                                     elem.dtype.is_int_signed())
             elif elem.dtype == tl.int64 and not require_i64:
-                assert False, "Expected a 32-bit integer; add a `.to(tl.int32)` to convert the value"
+                assert False, "Block pointers only support 32 bit `offsets/block_shape`, " \
+                    "add a `.to(tl.int32)` or use regular indexing for 64 bit support"
             return elem.handle
         assert False, f"Unsupported element type in shape/strides/offsets: {type(elem)}"
 
