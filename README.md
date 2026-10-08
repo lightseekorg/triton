@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> This is a downstream fork of Triton to help managing TokenSpeed dependency.
+> We introduce no new features here; the change is just to do vendor renaming
+> and custom releasing so that we can install a latest Triton compiler in
+> parallel to the default one shipped as a depdendcy to PyTorch. This allows
+> us to avoid breaking PyTorch and `torch.compile`, while still be able to
+> move fast and leverage latest Triton functionality.
 
 | **`Documentation`** | **`Nightly Wheels`** |
 |-------------------- | -------------------- |
