@@ -1,5 +1,5 @@
 from typing import Optional
-from triton._C.libproton import proton as libproton  # type: ignore
+from tokenspeed_triton._C.libproton import proton as libproton  # type: ignore
 import json as json
 from .flags import flags
 

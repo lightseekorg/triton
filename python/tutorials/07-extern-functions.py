@@ -17,11 +17,11 @@ Triton automatically selects the correct underlying device function to invoke ba
 
 import torch
 
-import triton
-import triton.language as tl
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
 import inspect
 import os
-from triton.language.extra import libdevice
+from tokenspeed_triton.language.extra import libdevice
 
 from pathlib import Path
 

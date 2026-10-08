@@ -4,10 +4,10 @@ add_subdirectory(include)
 add_subdirectory(lib)
 if(TRITON_BUILD_PYTHON_MODULE)
   if(TRITON_BUILD_NVIDIA_GSAN_RUNTIME)
-    set(GSAN_RUNTIME_SRC "${triton_SOURCE_DIR}/python/triton/experimental/gsan/src/GSanLibrary.cu")
+    set(GSAN_RUNTIME_SRC "${triton_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src/GSanLibrary.cu")
     set(GSAN_RUNTIME_HDRS
-      "${triton_SOURCE_DIR}/python/triton/experimental/gsan/src/GSan.h"
-      "${triton_SOURCE_DIR}/python/triton/experimental/gsan/src/Hash.cuh")
+      "${triton_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src/GSan.h"
+      "${triton_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src/Hash.cuh")
     set(GSAN_RUNTIME_IR "${CMAKE_CURRENT_SOURCE_DIR}/backend/lib/gsan.ll")
 
     find_program(TRITON_GSAN_CLANGXX NAMES clang++

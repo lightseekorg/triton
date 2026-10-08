@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from triton._C.libtriton import proton as triton_proton
+from tokenspeed_triton._C.libtriton import proton as triton_proton
 from typing import List
 from enum import Enum
 

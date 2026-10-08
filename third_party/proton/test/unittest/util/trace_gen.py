@@ -1,9 +1,9 @@
-import triton
+import tokenspeed_triton as triton
 import argparse
 import ctypes
-import triton.profiler as proton
-import triton.profiler.language as pl
-from triton.profiler.hooks import InstrumentationHook
+import tokenspeed_triton.profiler as proton
+import tokenspeed_triton.profiler.language as pl
+from tokenspeed_triton.profiler.hooks import InstrumentationHook
 
 pl.enable_semantic("triton")
 
