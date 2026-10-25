@@ -1,9 +1,9 @@
-import triton
-import triton.language as tl
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
 
-from triton.backends.compiler import GPUTarget
-from triton.knobs import CompileTimes
-from triton.compiler.compiler import ASTSource, IRSource
+from tokenspeed_triton.backends.compiler import GPUTarget
+from tokenspeed_triton.knobs import CompileTimes
+from tokenspeed_triton.compiler.compiler import ASTSource, IRSource
 
 from typing import Any, Union
 

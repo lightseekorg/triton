@@ -31,7 +31,7 @@ def find_therock_rocm_libraries():
 
 def _set_therock_runtime_environment(libraries):
     """Point Triton and Proton at a coherent set of TheRock libraries."""
-    import triton
+    import tokenspeed_triton as triton
 
     explicit_overrides = set(os.environ)
     if "TRITON_LIBHIP_PATH" not in explicit_overrides:

@@ -63,7 +63,7 @@ def test_custom_ops(tmp_path: pathlib.Path):
         return
 
     # Extend Triton's operation builder with the plugin's operations.
-    LIB = 'python/triton/plugins/libMLIRDialectPlugin.so'
+    LIB = 'python/tokenspeed_triton/plugins/libMLIRDialectPlugin.so'
     triton._C.libtriton.ir.builder.extend_with(LIB)
 
     size = 8

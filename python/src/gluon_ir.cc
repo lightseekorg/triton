@@ -146,14 +146,14 @@ py::object getLayoutClass(StringRef name) {
     const char *module;
     const char *className = nullptr;
   };
-  static constexpr auto common = "triton.experimental.gluon.language._layouts";
-  static constexpr auto amd = "triton.experimental.gluon.language.amd._layouts";
+  static constexpr auto common = "tokenspeed_triton.experimental.gluon.language._layouts";
+  static constexpr auto amd = "tokenspeed_triton.experimental.gluon.language.amd._layouts";
   static constexpr auto cdna5 =
-      "triton.experimental.gluon.language.amd.cdna5._layouts";
+      "tokenspeed_triton.experimental.gluon.language.amd.cdna5._layouts";
   static constexpr auto blackwell =
-      "triton.experimental.gluon.language.nvidia.blackwell";
+      "tokenspeed_triton.experimental.gluon.language.nvidia.blackwell";
   static constexpr auto rubin =
-      "triton.experimental.gluon.language.nvidia.rubin";
+      "tokenspeed_triton.experimental.gluon.language.nvidia.rubin";
   static const llvm::SmallDenseMap<llvm::StringRef, LayoutImport, 32> imports =
       {
           {"AutoLayout", {common}},
@@ -507,8 +507,8 @@ void init_gluon_ir(py::module_ &m) {
              // Build Py _TensorMemoryLinearLayout(row_bases, col_bases, shape,
              // repr)
              py::object tmemCls =
-                 py::module_::import_(
-                     "triton.experimental.gluon.language.nvidia.blackwell")
+                 py::module_::import_("tokenspeed_triton.experimental.gluon."
+                                      "language.nvidia.blackwell")
                      .attr("_TensorMemoryLinearLayout");
              auto bases = linearLayout.getBases();
              auto rowBases = bases[mlir::StringAttr::get(ctx, "row")];
