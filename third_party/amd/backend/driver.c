@@ -56,7 +56,7 @@ static void PyTDMDescriptor_dealloc(PyTDMDescriptorObject *self) {
 
 static PyTypeObject PyTDMDescriptorType = {
     PyVarObject_HEAD_INIT(NULL, 0).tp_name =
-        "triton.backends.amd.PyTDMDescriptor",
+        "tokenspeed_triton.backends.amd.PyTDMDescriptor",
     .tp_basicsize = sizeof(PyTDMDescriptorObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
@@ -100,7 +100,7 @@ static void PyKernelArg_free(void *ptr) { free(ptr); }
 
 static PyTypeObject PyKernelArgType = {
     PyVarObject_HEAD_INIT(NULL, 0).tp_name =
-        "triton.backends.nvidia.PyKernelArg",
+        "tokenspeed_triton.backends.nvidia.PyKernelArg",
     .tp_basicsize = sizeof(PyKernelArgObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,

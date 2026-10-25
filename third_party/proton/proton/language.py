@@ -1,8 +1,8 @@
-from triton.language import core as tl
-from triton.language.core import builtin
-from triton._C.libtriton import proton as triton_proton
-from triton.language.semantic import TritonSemantic
-from triton.experimental.gluon.language._semantic import GluonSemantic
+from tokenspeed_triton.language import core as tl
+from tokenspeed_triton.language.core import builtin
+from tokenspeed_triton._C.libtriton import proton as triton_proton
+from tokenspeed_triton.language.semantic import TritonSemantic
+from tokenspeed_triton.experimental.gluon.language._semantic import GluonSemantic
 
 from .flags import flags
 

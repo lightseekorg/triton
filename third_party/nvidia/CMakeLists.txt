@@ -4,7 +4,7 @@ add_subdirectory(include)
 add_subdirectory(lib)
 if(TRITON_BUILD_PYTHON_MODULE)
   if(TRITON_BUILD_NVIDIA_GSAN_RUNTIME)
-    set(GSAN_RUNTIME_DIR "${triton_SOURCE_DIR}/python/triton/experimental/gsan/src")
+    set(GSAN_RUNTIME_DIR "${triton_SOURCE_DIR}/python/tokenspeed_triton/experimental/gsan/src")
     set(GSAN_RUNTIME_HDRS
       "${GSAN_RUNTIME_DIR}/GSan.h"
       "${GSAN_RUNTIME_DIR}/Compat.h"

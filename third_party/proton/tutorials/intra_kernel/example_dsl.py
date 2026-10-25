@@ -5,13 +5,13 @@ Intra-Kernel Profiling Examples using Proton DSL for Triton and Gluon Kernels
 import argparse
 
 import torch
-import triton
-import triton.language as tl
-import triton.profiler as proton
-import triton.profiler.language as pl
-from triton.experimental import gluon
-from triton.experimental.gluon import language as gl
-from triton.experimental.gluon.language.nvidia.hopper import (
+import tokenspeed_triton as triton
+import tokenspeed_triton.language as tl
+import tokenspeed_triton.profiler as proton
+import tokenspeed_triton.profiler.language as pl
+from tokenspeed_triton.experimental import gluon
+from tokenspeed_triton.experimental.gluon import language as gl
+from tokenspeed_triton.experimental.gluon.language.nvidia.hopper import (
     mbarrier,
     tma,
     warpgroup_mma,
@@ -19,7 +19,7 @@ from triton.experimental.gluon.language.nvidia.hopper import (
     warpgroup_mma_wait,
 )
 
-from triton.experimental.gluon.nvidia.hopper import TensorDescriptor
+from tokenspeed_triton.experimental.gluon.nvidia.hopper import TensorDescriptor
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 

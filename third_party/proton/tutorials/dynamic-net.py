@@ -2,7 +2,7 @@ import random
 import torch
 import math
 
-import triton.profiler as proton
+import tokenspeed_triton.profiler as proton
 import argparse
 
 engine = "torch"

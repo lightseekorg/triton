@@ -6,7 +6,7 @@ from typing import Optional, Union, Any, Sequence
 from .flags import flags
 from .metric import transform_tensor_metrics, set_metric_kernels
 from .state import metadata_state
-from triton._C.libproton import proton as libproton
+from tokenspeed_triton._C.libproton import proton as libproton
 
 thread_local_scopes = threading.local()
 

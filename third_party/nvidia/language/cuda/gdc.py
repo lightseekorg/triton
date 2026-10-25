@@ -6,7 +6,7 @@ Programmatic dependent launch is supported on SM90 (Hopper) and beyond.
 For PTX reference on grid dependency control see https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-griddepcontrol.
 """
 
-from triton.language import core
+from tokenspeed_triton.language import core
 
 
 @core.extern
