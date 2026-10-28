@@ -1318,9 +1318,7 @@ def test_fdiv_approx(approx, reciprocal, enable_fp_fusion, device):
     x_tri = to_triton(x, device=device)
     y_tri = to_triton(y, device=device)
     z_tri = to_triton(np.empty_like(x), device=device)
-    with triton.knobs.language.scope():
-        triton.knobs.language.allow_fp_fusion = True
-        compiled = kernel[(1, )](x_tri, y_tri, z_tri, approx, reciprocal, x.size, enable_fp_fusion=enable_fp_fusion)
+    compiled = kernel[(1, )](x_tri, y_tri, z_tri, approx, reciprocal, x.size, enable_fp_fusion=enable_fp_fusion)
     expected = (np.float32(1.0) if reciprocal else x) / y
     # AMD's 2.5 ULP bound allows 3 ULP against a rounded reference.
     maxulp = 3 if approx and is_hip() else 2
@@ -1500,9 +1498,7 @@ def test_sqrt_rn_special_values(enable_fp_fusion, device):
     ], dtype=np.float32)
     x_tri = to_triton(x, device=device)
     y_tri = to_triton(np.empty_like(x), device=device)
-    with triton.knobs.language.scope():
-        triton.knobs.language.allow_fp_fusion = True
-        kernel[(1, )](x_tri, y_tri, x.size, enable_fp_fusion=enable_fp_fusion)
+    kernel[(1, )](x_tri, y_tri, x.size, enable_fp_fusion=enable_fp_fusion)
     with np.errstate(invalid="ignore"):
         expected = np.sqrt(x.astype(np.float64)).astype(np.float32)
     actual = to_numpy(y_tri)
@@ -7377,8 +7373,7 @@ def test_dot_max_num_imprecise_acc(M, N, K, BLOCK_M, BLOCK_N, BLOCK_K, in_type_s
         torch.testing.assert_close(ref_out, C, rtol=1e-3, atol=1e-3)
     if is_hopper() and low_precision_acc > 0:
         # Hopper-specific workaround lower precision accumulator.
-        assert len(re.findall(r"add(?:\.rn)?\.f32",
-                              h.asm["ptx"])) == (BLOCK_M * BLOCK_N) // (32 * num_warps) * (BLOCK_K // low_precision_acc)
+        assert h.asm["ptx"].count("add.f32") == (BLOCK_M * BLOCK_N) // (32 * num_warps) * (BLOCK_K // low_precision_acc)
 
 
 # -----------------------
@@ -7388,8 +7383,7 @@ def test_dot_max_num_imprecise_acc(M, N, K, BLOCK_M, BLOCK_N, BLOCK_K, in_type_s
 
 @pytest.mark.parametrize("enable_fp_fusion", [False, True])
 @pytest.mark.parametrize("default_override", [False, True])
-@pytest.mark.parametrize("allow_fusion", [False, True])
-def test_enable_fp_fusion(enable_fp_fusion, default_override, allow_fusion, device, fresh_knobs):
+def test_enable_fp_fusion(enable_fp_fusion, default_override, device, fresh_knobs):
     # Sequential multiply add can be fused by backend
     @triton.jit
     def mul_add(data):
@@ -7397,7 +7391,6 @@ def test_enable_fp_fusion(enable_fp_fusion, default_override, allow_fusion, devi
         tl.store(ptrs, tl.load(ptrs) * 1.5 + 1.0)
 
     data = torch.randn((128, ), device=device, dtype=torch.float32)
-    fresh_knobs.language.allow_fp_fusion = allow_fusion
     if default_override:
         fresh_knobs.language.default_fp_fusion = enable_fp_fusion
         h = mul_add.warmup(data, grid=(1, ))
@@ -7407,27 +7400,7 @@ def test_enable_fp_fusion(enable_fp_fusion, default_override, allow_fusion, devi
     if not is_cuda():
         return
     found_fma = re.search(r'(mad|fma)\.r[nzmp]\.(ftz\.)?f32', h.asm["ptx"]) is not None
-    assert found_fma == (enable_fp_fusion and allow_fusion)
-
-
-@pytest.mark.parametrize("explicit_fma", [False, True])
-@pytest.mark.parametrize("allow_fusion", [False, True])
-def test_allow_fp_fusion(explicit_fma, allow_fusion, device, fresh_knobs):
-
-    @triton.jit
-    def mul_add(x, y, z, out, EXPLICIT_FMA: tl.constexpr):
-        a, b, c = tl.load(x), tl.load(y), tl.load(z)
-        value = tl.fma(a, b, c) if EXPLICIT_FMA else a * b + c
-        tl.store(out, value)
-
-    x = torch.tensor([1 + 2**-23], device=device, dtype=torch.float32)
-    y = torch.tensor([1 - 2**-23], device=device, dtype=torch.float32)
-    z = torch.tensor([-1], device=device, dtype=torch.float32)
-    out = torch.empty_like(x)
-    fresh_knobs.language.allow_fp_fusion = allow_fusion
-    kernel = mul_add[(1, )](x, y, z, out, explicit_fma, enable_fp_fusion=True)
-    assert kernel.metadata.enable_fp_fusion == allow_fusion
-    assert out.item() == (-2**-46 if explicit_fma or allow_fusion else 0)
+    assert found_fma == enable_fp_fusion
 
 
 # -----------------------
