@@ -2,17 +2,18 @@
 
 import sys
 
-config.triton_obj_root = "@triton_BINARY_DIR@"
-config.llvm_src_root = "@LLVM_SOURCE_DIR@"
-config.llvm_obj_root = "@LLVM_BINARY_DIR@"
-config.llvm_tools_dir = "@LLVM_TOOLS_DIR@"
-config.llvm_lib_dir = "@LLVM_LIBS_DIR@"
-config.llvm_shlib_dir = "@CMAKE_LIBRARY_OUTPUT_DIRECTORY@"
+config.triton_obj_root = r"@triton_BINARY_DIR@"
+config.triton_tools_dir = r"@TRITON_TOOLS_DIR@"
+config.llvm_src_root = r"@LLVM_SOURCE_DIR@"
+config.llvm_obj_root = r"@LLVM_BINARY_DIR@"
+config.llvm_tools_dir = r"@LLVM_TOOLS_DIR@"
+config.llvm_lib_dir = r"@LLVM_LIBS_DIR@"
+config.llvm_shlib_dir = r"@CMAKE_LIBRARY_OUTPUT_DIRECTORY@"
 config.llvm_shlib_ext = "@CMAKE_SHARED_LIBRARY_SUFFIX@"
-config.llvm_exe_ext = "@EXEEXT@"
-config.lit_tools_dir = "@LLVM_LIT_TOOLS_DIR@"
-config.mlir_binary_dir = "@MLIR_BINARY_DIR@"
-config.python_executable = "@Python3_EXECUTABLE@"
+config.llvm_exe_ext = "@CMAKE_EXECUTABLE_SUFFIX@"
+config.lit_tools_dir = r"@LLVM_LIT_TOOLS_DIR@"
+config.mlir_binary_dir = r"@MLIR_BINARY_DIR@"
+config.python_executable = r"@Python3_EXECUTABLE@"
 config.enable_bindings_python = @MLIR_ENABLE_BINDINGS_PYTHON@
 config.triton_ext_enabled = @TRITON_EXT_ENABLED@
 
@@ -21,4 +22,4 @@ import lit.llvm
 lit.llvm.initialize(lit_config, config)
 
 # Let the main config do the real work
-lit_config.load_config(config, "@triton_SOURCE_DIR@/test/lit.cfg.py")
+lit_config.load_config(config, r"@triton_SOURCE_DIR@/test/lit.cfg.py")

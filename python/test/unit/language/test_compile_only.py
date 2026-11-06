@@ -71,6 +71,29 @@ def test_compile_only_sm100() -> None:
     assert k.asm["cubin"] != b""
 
 
+@pytest.mark.parametrize("arch", [80, 89, 100])
+@pytest.mark.parametrize("fp8", ["fp8e4nv", "fp8e5"])
+@pytest.mark.parametrize("dtype", ["fp16", "bf16", "fp32"])
+@pytest.mark.parametrize("downcast", [False, True])
+@pytest.mark.parametrize("block_size", [128, 512])
+def test_fp8_conversion_compile_targets(arch, fp8, dtype, downcast, block_size):
+
+    @triton.jit
+    def convert(src, out, BLOCK_SIZE: tl.constexpr):
+        offsets = tl.arange(0, BLOCK_SIZE)
+        values = tl.load(src + offsets)
+        tl.store(out + offsets, values.to(out.dtype.element_ty))
+
+    src_type, dst_type = (dtype, fp8) if downcast else (fp8, dtype)
+    source = ASTSource(convert, signature={"src": f"*{src_type}", "out": f"*{dst_type}", "BLOCK_SIZE": "constexpr"},
+                       constexprs={"BLOCK_SIZE": block_size})
+    compiled = triton.compile(source, target=GPUTarget("cuda", arch, 32))
+    assert compiled.asm["cubin"]
+    assert f".target sm_{arch}" in compiled.asm["ptx"]
+    if arch < 89:
+        assert not re.search(r"\bcvt\.[^;\n]*(?:e4m3|e5m2)", compiled.asm["ptx"])
+
+
 @pytest.mark.parametrize("seed_type, dtype", [("u32", tl.uint32), ("u64", tl.uint32), ("u64", tl.uint64)])
 def test_umulhi_truncated_input(seed_type, dtype):
     from triton._C.libtriton import ir
@@ -260,8 +283,14 @@ module attributes {"ttg.num-ctas" = 2 : i32, "ttg.num-warps" = 4 : i32, ttg.targ
     assert k.asm["cubin"] != b""
 
 
+def _is_gsan_built() -> bool:
+    return hasattr(triton._C.libtriton, "gsan_testing")
+
+
 @pytest.mark.parametrize("instrumentation_mode", ["", "consan", "gsan", "iisan", "fpsan", "gsan,consan"])
 def test_maxnreg_instrumentation_mode(instrumentation_mode, monkeypatch, fresh_triton_cache):
+    if "gsan" in instrumentation_mode and not _is_gsan_built():
+        pytest.skip("GSan is not built in this configuration")
 
     class UnavailableDriver:
 

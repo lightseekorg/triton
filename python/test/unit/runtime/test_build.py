@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import pytest
+import sys
 import tarfile
 import tempfile
 
@@ -94,6 +95,44 @@ def test_compile_module_bad_cache(fresh_knobs):
 
         assert mod.go("huh") == "huh"
         assert mod.go("hello") == "hiya"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows bundled toolchain discovery")
+@pytest.mark.parametrize("arch", ["x64", "arm64"])
+def test_cuda_bundled_editable_install(monkeypatch, tmp_path, arch):
+    from triton import windows_utils
+
+    package = tmp_path / "triton"
+    backend = package / "backends" / "nvidia"
+    for relative in ("bin/ptxas.exe", "include/cuda.h", f"lib/{arch}/cuda.lib"):
+        path = backend / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(windows_utils, "__file__", str(package / "windows_utils.py"))
+    monkeypatch.setattr(windows_utils, "_arch_candidates", lambda: [arch])
+
+    assert windows_utils.find_cuda_bundled() == (str(backend / "bin"), [str(backend / "include")],
+                                                 [str(backend / "lib" / arch)])
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows bundled toolchain discovery")
+def test_tcc_bundled_editable_install(monkeypatch, tmp_path):
+    from triton.runtime import build
+
+    runtime = tmp_path / "triton" / "runtime"
+    compiler = runtime / "tcc" / "tcc.exe"
+    compiler.parent.mkdir(parents=True)
+    compiler.touch()
+    monkeypatch.setattr(build, "__file__", str(runtime / "build.py"))
+    monkeypatch.setattr(build.sysconfig, "get_path", lambda name: str(tmp_path / "site-packages"))
+    monkeypatch.setattr(build, "find_msvc_winsdk", lambda **kwargs: (None, [], []))
+    monkeypatch.delenv("CC", raising=False)
+
+    build._find_compiler.cache_clear()
+    try:
+        assert build._find_compiler("c") == str(compiler)
+    finally:
+        build._find_compiler.cache_clear()
 
 
 @pytest.mark.parametrize("artifact", ["bootstrap", "codegen"])

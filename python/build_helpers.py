@@ -28,6 +28,8 @@ def get_base_dir():
 def _get_cmake_dir():
     plat_name = sysconfig.get_platform()
     python_version = sysconfig.get_python_version()
+    if sysconfig.get_config_var("Py_GIL_DISABLED"):
+        python_version += "t"
     dir_name = f"cmake.{plat_name}-{sys.implementation.name}-{python_version}"
     return Path(get_base_dir()) / "build" / dir_name
 
@@ -289,16 +291,16 @@ def _validate_sha256(archive_path, url, expected_sha256):
     raise RuntimeError(message)
 
 
-def _download_and_extract(url, download_dir, label, archives_path, expected_sha256=None):
+def _download_and_extract(url, remove_dir, extract_dir, label, archives_path, expected_sha256=None):
     keep_archive = check_env_flag("TRITON_CACHE_DEPENDENCY_DOWNLOADS")
     archive_path = _get_archive_path(archives_path, url)
     if not (keep_archive and os.path.exists(archive_path)):
         _download_file(url, archive_path, f"downloading {label}")
     _validate_sha256(archive_path, url, expected_sha256)
     with contextlib.suppress(Exception):
-        shutil.rmtree(download_dir)
-    os.makedirs(download_dir, exist_ok=True)
-    _extract_archive(archive_path, download_dir)
+        shutil.rmtree(remove_dir)
+    os.makedirs(extract_dir, exist_ok=True)
+    _extract_archive(archive_path, extract_dir)
     if not keep_archive:
         os.remove(archive_path)
 
@@ -314,7 +316,10 @@ def update_symlink(link_path, source_path):
 
     print(f"creating symlink: {link_path} -> {source_path}", file=sys.stderr)
     link_path.absolute().parent.mkdir(parents=True, exist_ok=True)  # Ensure link's parent directory exists
-    link_path.symlink_to(source_path.absolute(), target_is_directory=True)
+    try:
+        link_path.symlink_to(source_path.absolute(), target_is_directory=True)
+    except OSError as e:
+        print(f"Warning: Could not create symlink: {e}", file=sys.stderr)
 
 
 # --- third party packages -----
@@ -393,13 +398,16 @@ def is_linux_os(os_id):
 def get_llvm_system_suffix(helper_args: BuildHelperArgs):
     system = platform.system()
     try:
-        arch = {"x86_64": "x64", "arm64": "arm64", "aarch64": "arm64"}[platform.machine()]
+        arch = {"x86_64": "x64", "AMD64": "x64", "ARM64": "arm64", "arm64": "arm64", "aarch64":
+                "arm64"}[platform.machine()]
     except KeyError:
         arch = platform.machine()
     if helper_args.llvm_system_suffix:
         system_suffix = helper_args.llvm_system_suffix
     elif system == "Darwin":
         system_suffix = f"macos-{arch}"
+    elif system == "Windows":
+        system_suffix = f"windows-{arch}"
     elif system == "Linux":
         if arch == "arm64" and is_linux_os("almalinux"):
             system_suffix = "almalinux-arm64"
@@ -434,7 +442,15 @@ def get_llvm_package_info(helper_args: BuildHelperArgs):
     system_suffix = get_llvm_system_suffix(helper_args)
     if system_suffix is None:
         return Package("llvm", "LLVM-C.lib", "", "LLVM_INCLUDE_DIRS", "LLVM_LIBRARY_DIR", "LLVM_SYSPATH")
-    archive = get_llvm_archive(system_suffix)
+    llvm_info_path = os.path.join(get_base_dir(), "cmake", "llvm-info.json")
+    with open(llvm_info_path, "r") as llvm_info_file:
+        llvm_info = json.load(llvm_info_file)
+    if system_suffix not in llvm_info["sha256sum"]:
+        print(
+            f"LLVM pre-compiled image is not available for {system_suffix} in {llvm_info_path}. Proceeding with user-configured LLVM from source build."
+        )
+        return Package("llvm", "LLVM-C.lib", "", "LLVM_INCLUDE_DIRS", "LLVM_LIBRARY_DIR", "LLVM_SYSPATH")
+    archive = get_llvm_archive(system_suffix, llvm_info)
     name = archive.filename.removesuffix(".tar.gz")
     # Create a stable symlink that doesn't include revision
     sym_name = f"llvm-{system_suffix}"
@@ -494,16 +510,24 @@ def _get_thirdparty_package_cmake_vars(package: Package, helper_args: BuildHelpe
     syspath_override = _get_syspath_override(package.syspath_var_name, helper_args)
     if syspath_override is not None:
         package_dir = syspath_override
-    version_file_path = os.path.join(package_dir, "version.txt")
+    if package.sym_name is not None:
+        version_file_path = os.path.join(package_root_dir, package.sym_name, "version.txt")
+    else:
+        version_file_path = os.path.join(package_dir, "version.txt")
 
     input_defined = syspath_override is not None
-    input_exists = os.path.exists(version_file_path)
-    input_compatible = input_exists and Path(version_file_path).read_text() == package.url
+    input_compatible = os.path.exists(version_file_path) and Path(version_file_path).read_text() == package.url
+
+    if not input_compatible and package.sym_name is not None:
+        # Try to recreate the symlink with the correct version
+        version_file_path = os.path.join(package_dir, "version.txt")
+        input_compatible = os.path.exists(version_file_path) and Path(version_file_path).read_text() == package.url
 
     if helper_args.offline_build and not input_defined:
         raise RuntimeError(f"Requested an offline build but {package.syspath_var_name} is not set")
     if not helper_args.offline_build and not input_defined and not input_compatible:
-        _download_and_extract(package.url, package_root_dir, package.name, helper_args.archives_path, package.sha256sum)
+        _download_and_extract(package.url, package_dir, package_root_dir, package.name, helper_args.archives_path,
+                              package.sha256sum)
         # write version url to package_dir
         with open(os.path.join(package_dir, "version.txt"), "w") as file:
             file.write(package.url)
@@ -581,7 +605,7 @@ def download_codegen_llvm(backend: str, llvm_info: dict, helper_args: BuildHelpe
         if helper_args.offline_build:
             raise RuntimeError(f"Requested an offline build but {backend} bootstrap LLVM is missing from {llvm_path}")
         archive = get_llvm_archive(system_suffix, {**bootstrap, "llvm_hash": llvm_info["llvm_hash"]})
-        _download_and_extract(archive.url, package_root, name, helper_args.archives_path, archive.sha256sum)
+        _download_and_extract(archive.url, llvm_path, package_root, name, helper_args.archives_path, archive.sha256sum)
     if not os.path.isfile(llvm_config):
         raise RuntimeError(f"Cannot find independently pinned {backend} LLVM configuration at {llvm_config}")
     return llvm_path
@@ -658,7 +682,8 @@ def download_and_copy_amd_codegen(helper_args: BuildHelperArgs):
         if not os.path.isfile(source_path):
             if helper_args.offline_build:
                 raise RuntimeError(f"Requested an offline build but AMD code generation is missing from {source_path}")
-            _download_and_extract(package.url, package_root, package.name, helper_args.archives_path, package.sha256sum)
+            _download_and_extract(package.url, os.path.join(package_root, package.name), package_root, package.name,
+                                  helper_args.archives_path, package.sha256sum)
 
     if not os.path.isfile(source_path):
         raise RuntimeError(f"Cannot find AMD code generation at {source_path}; set TRITON_AMD_CODEGEN_PATH")
@@ -676,6 +701,10 @@ def download_and_copy_amd_codegen(helper_args: BuildHelperArgs):
     shutil.copy2(source_path, destination_path)
 
 
+def _is_windows_arm64():
+    return platform.system() == "Windows" and platform.machine().lower() in ("arm64", "aarch64")
+
+
 def download_and_copy(name, src_func, dst_path, override_path, version, url_func, helper_args: BuildHelperArgs):
     if helper_args.offline_build:
         return
@@ -686,12 +715,12 @@ def download_and_copy(name, src_func, dst_path, override_path, version, url_func
     system = platform.system()
     arch = platform.machine()
     # NOTE: This might be wrong for jetson if both grace chips and jetson chips return aarch64
-    arch = {"arm64": "sbsa", "aarch64": "sbsa"}.get(arch, arch)
-    supported = {"Linux": "linux", "Darwin": "linux"}
+    arch = {"AMD64": "x86_64", "ARM64": "arm64", "arm64": "sbsa", "aarch64": "sbsa"}.get(arch, arch)
+    supported = {"Linux": "linux", "Darwin": "linux", "Windows": "windows"}
     url = url_func(supported[system], arch, version)
     src_path = src_func(supported[system], arch, version)
-    tmp_path = os.path.join(cache_path, "nvidia", name)  # path to cache the download
-    dst_path = os.path.join(base_dir, "third_party", "nvidia", "backend", dst_path)  # final binary path
+    tmp_path = os.path.join(cache_path, name)  # path to cache the download
+    dst_path = os.path.join(base_dir, dst_path)  # final binary path
     src_path = os.path.join(tmp_path, src_path)
     download = not os.path.exists(src_path)
     if os.path.exists(dst_path) and system == "Linux" and shutil.which(dst_path) is not None:
@@ -700,7 +729,7 @@ def download_and_copy(name, src_func, dst_path, override_path, version, url_func
         assert curr_version is not None, f"No version information for {dst_path}"
         download = download or curr_version.group(1) != version
     if download:
-        _download_and_extract(url, tmp_path, name, helper_args.archives_path)
+        _download_and_extract(url, tmp_path, tmp_path, name, helper_args.archives_path)
     os.makedirs(os.path.split(dst_path)[0], exist_ok=True)
     print(f"copy {src_path} to {dst_path} ...")
     if os.path.isdir(src_path):
@@ -720,98 +749,133 @@ class NvidiaToolchainPackage:
     override_attr: str
 
     def archive(self, system, arch):
-        filename = f"{self.component}-{system}-{arch}-{self.version}-archive.tar.xz"
+        extension = ".zip" if system == "windows" else ".tar.xz"
+        filename = f"{self.component}-{system}-{arch}-{self.version}-archive{extension}"
         path = f"{self.component}/{system}-{arch}/{filename}"
         url = f"https://developer.download.nvidia.com/compute/cuda/redist/{path}"
         return DependencyArchive(url, f"nvidia-cuda-redist/{path}")
 
+    def source_path(self, system, arch):
+        archive = self.archive(system, arch)
+        archive_root = archive.filename.removesuffix(".tar.xz").removesuffix(".zip")
+        return f"{archive_root}/{self.src_path}"
 
-def get_nvidia_toolchain_packages():
+
+def get_nvidia_toolchain_packages(need_copy_all=False):
     nvidia_version_path = os.path.join(get_base_dir(), "cmake", "nvidia-toolchain-version.json")
     with open(nvidia_version_path, "r") as nvidia_version_file:
         versions = json.load(nvidia_version_file)
+    # CUDA redistributes Windows ARM64 packages only since CUDA 13.4, so those versions are pinned separately
+    is_windows_arm64 = _is_windows_arm64()
+    versions.update(versions.get("windows-arm64", {}) if is_windows_arm64 else {})
     exe = sysconfig.get_config_var("EXE")
-    crt = "cuda_crt" if int(versions["cudacrt"].split(".")[0]) >= 13 else "cuda_nvcc"
-    return [
+    packages = [
         NvidiaToolchainPackage(
-            name="nvcc",
+            name=f"nvidia/nvcc-{versions['ptxas']}",
             component="cuda_nvcc",
             version=versions["ptxas"],
             src_path=f"bin/ptxas{exe}",
-            dst_path="bin/ptxas",
+            dst_path=f"third_party/nvidia/backend/bin/ptxas{exe}",
             override_attr="ptxas_path",
         ),
-        NvidiaToolchainPackage(
-            name="cuobjdump",
-            component="cuda_cuobjdump",
-            version=versions["cuobjdump"],
-            src_path=f"bin/cuobjdump{exe}",
-            dst_path="bin/cuobjdump",
-            override_attr="cuobjdump_path",
-        ),
-        NvidiaToolchainPackage(
-            name="nvdisasm",
-            component="cuda_nvdisasm",
-            version=versions["nvdisasm"],
-            src_path=f"bin/nvdisasm{exe}",
-            dst_path="bin/nvdisasm",
-            override_attr="nvdisasm_path",
-        ),
-        NvidiaToolchainPackage(
-            name="nvcc-crt",
-            component=crt,
-            version=versions["cudacrt"],
-            src_path="include",
-            dst_path="include",
-            override_attr="cudacrt_path",
-        ),
-        NvidiaToolchainPackage(
-            name="cudart",
-            component="cuda_cudart",
-            version=versions["cudart"],
-            src_path="include",
-            dst_path="include",
-            override_attr="cudart_path",
-        ),
-        NvidiaToolchainPackage(
-            name="cupti",
-            component="cuda_cupti",
-            version=versions["cupti"],
-            src_path="include",
-            dst_path="include",
-            override_attr="cupti_include_path",
-        ),
-        NvidiaToolchainPackage(
-            name="cupti",
-            component="cuda_cupti",
-            version=versions["cupti"],
-            src_path="lib",
-            dst_path="lib/cupti",
-            override_attr="cupti_lib_path",
-        ),
-        NvidiaToolchainPackage(
-            name="cupti-blackwell",
-            component="cuda_cupti",
-            version=versions["cupti-blackwell"],
-            src_path="lib",
-            dst_path="lib/cupti-blackwell",
-            override_attr="cupti_lib_blackwell_path",
-        ),
     ]
+
+    if need_copy_all:
+        crt = "cuda_crt" if int(versions["cudacrt"].split(".")[0]) >= 13 else "cuda_nvcc"
+        is_windows = platform.system() == "Windows"
+        cupti_lib_version = versions.get("cupti-windows", versions["cupti"]) if is_windows else versions["cupti"]
+        packages.extend([
+            NvidiaToolchainPackage(
+                name=f"nvidia/crt-{versions['cudacrt']}",
+                component=crt,
+                version=versions["cudacrt"],
+                src_path="include",
+                dst_path="third_party/nvidia/backend/include",
+                override_attr="cudacrt_path",
+            ),
+            NvidiaToolchainPackage(
+                name=f"nvidia/cudart-{versions['cudart']}",
+                component="cuda_cudart",
+                version=versions["cudart"],
+                src_path="include",
+                dst_path="third_party/nvidia/backend/include",
+                override_attr="cudart_path",
+            ),
+            NvidiaToolchainPackage(
+                name=f"nvidia/cudart-{versions['cudart']}",
+                component="cuda_cudart",
+                version=versions["cudart"],
+                src_path="lib",
+                dst_path="third_party/nvidia/backend/lib",
+                override_attr="cudart_path",
+            ),
+            NvidiaToolchainPackage(
+                name=f"nvidia/cupti-{versions['cupti']}",
+                component="cuda_cupti",
+                version=versions["cupti"],
+                src_path="include",
+                dst_path="third_party/nvidia/backend/include",
+                override_attr="cupti_include_path",
+            ),
+            NvidiaToolchainPackage(
+                name=f"nvidia/cupti-{cupti_lib_version}",
+                component="cuda_cupti",
+                version=cupti_lib_version,
+                src_path="lib",
+                dst_path="third_party/nvidia/backend/lib/cupti",
+                override_attr="cupti_lib_path",
+            ),
+        ])
+    else:
+        cuda_lib_arch = "arm64" if is_windows_arm64 else "x64"
+        packages.extend([
+            NvidiaToolchainPackage(
+                name=f"nvidia/cudart-{versions['cudart']}",
+                component="cuda_cudart",
+                version=versions["cudart"],
+                src_path="include/cuda.h",
+                dst_path="third_party/nvidia/backend/include/cuda.h",
+                override_attr="cudart_path",
+            ),
+            NvidiaToolchainPackage(
+                name=f"nvidia/cudart-{versions['cudart']}",
+                component="cuda_cudart",
+                version=versions["cudart"],
+                src_path=f"lib/{cuda_lib_arch}/cuda.lib",
+                dst_path=f"third_party/nvidia/backend/lib/{cuda_lib_arch}/cuda.lib",
+                override_attr="cudart_path",
+            ),
+        ])
+    return packages
 
 
 def download_and_copy_dependencies(helper_args: BuildHelperArgs):
     download_and_copy_amd_codegen(helper_args)
 
-    for package in get_nvidia_toolchain_packages():
+    is_windows = platform.system() == "Windows"
+    need_copy_all = (check_env_flag("TRITON_BUILD_PROTON", "ON") or check_env_flag("TRITON_BUILD_NVIDIA_GSAN_RUNTIME"))
+    for package in get_nvidia_toolchain_packages(need_copy_all):
         download_and_copy(
             name=package.name,
-            src_func=lambda system, arch, version, package=package:
-            f"{package.archive(system, arch).filename.removesuffix('.tar.xz')}/{package.src_path}",
+            src_func=lambda system, arch, version, package=package: package.source_path(system, arch),
             dst_path=package.dst_path,
             override_path=getattr(helper_args, package.override_attr),
             version=package.version,
             url_func=lambda system, arch, version, package=package: package.archive(system, arch).url,
+            helper_args=helper_args,
+        )
+
+    if is_windows:
+        tinycc_version = "0.9.28rc-1d8b731"
+        tinycc_arch = "arm64" if _is_windows_arm64() else "x64"
+        download_and_copy(
+            name=f"tcc/tcc-{tinycc_version}",
+            src_func=lambda system, arch, version: ".",
+            dst_path="python/triton/runtime/tcc",
+            override_path=None,
+            version=tinycc_version,
+            url_func=lambda system, arch, version:
+            f"https://github.com/woct0rdho/tinycc/releases/download/v{version}/tcc-{version}-windows-{tinycc_arch}.zip",
             helper_args=helper_args,
         )
 

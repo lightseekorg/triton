@@ -40,7 +40,8 @@ endif()
 
 unset(PROTON_ROCPROFILER_SDK_HAS_PC_SAMPLING CACHE)
 set(PROTON_ROCPROFILER_SDK_HAS_PC_SAMPLING OFF)
-if(EXISTS "${ROCPROFILER_SDK_INCLUDE_DIR}/rocprofiler-sdk/pc_sampling.h")
+if(NOT WIN32 AND
+   EXISTS "${ROCPROFILER_SDK_INCLUDE_DIR}/rocprofiler-sdk/pc_sampling.h")
   set(PROTON_ROCPROFILER_SDK_HAS_PC_SAMPLING ON)
 endif()
 
@@ -201,3 +202,9 @@ endif()
 
 # ============ Link any external libs required by Proton backends ============
 link_proton_backend_external_libs()
+
+if(WIN32)
+  target_link_libraries(proton PRIVATE dlfcn)
+  set_target_properties(proton PROPERTIES PREFIX "lib")
+  set_target_properties(proton PROPERTIES SUFFIX ".pyd")
+endif()

@@ -16,6 +16,7 @@ python/triton/_C/*.pyd
 python/triton/_C/*.so
 python/triton/_C/*.so.*
 python/triton/_C/*.dylib
+python/triton/_C/*.dll
 python/triton/_C/*.pdb
 python/triton/_C/*.exe
 python/triton/_C/*.ilk
@@ -68,6 +69,7 @@ nvdisasm
 ptxas
 
 # Third-party include
+third_party/nvidia/backend/bin
 third_party/nvidia/backend/include
 third_party/nvidia/backend/lib/cupti
 third_party/nvidia/backend/lib/cupti-blackwell
@@ -76,6 +78,8 @@ third_party/nvidia/backend/lib/gsan-profile.ll
 third_party/amd/backend/lib/libtriton_amd_codegen.dylib
 third_party/amd/backend/lib/libtriton_amd_codegen.so
 third_party/amd/backend/lib/triton_amd_codegen.dll
+
+python/triton/runtime/tcc
 
 # Docs
 docs/_build/
@@ -104,3 +108,6 @@ docs/sg_execution_times.rst
 .DS_Store
 
 AGENTS.override.md
+
+/dist/
+/wheelhouse/

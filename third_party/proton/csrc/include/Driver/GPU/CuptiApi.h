@@ -12,7 +12,17 @@ namespace cupti {
 
 struct ExternLibCupti : public ExternLibBase {
   using RetType = CUptiResult;
+#ifdef _WIN32
+  // On Windows, each version of CUPTI has a specific DLL name. Remember to
+  // update this with `nvidia-toolchain-version.json`.
+#ifdef _M_ARM64
+  static constexpr const char *name = "cupti64_2026.3.0.dll";
+#else
+  static constexpr const char *name = "cupti64_2026.2.0.dll";
+#endif
+#else
   static constexpr const char *name = "libcupti.so";
+#endif
   static constexpr const char *symbolName = "cuptiUnsubscribe";
   static constexpr const char *pathEnv = "TRITON_CUPTI_LIB_PATH";
   static constexpr RetType success = CUPTI_SUCCESS;
@@ -30,6 +40,10 @@ template <bool CheckSuccess>
 CUptiResult activityRegisterCallbacks(
     CUpti_BuffersCallbackRequestFunc funcBufferRequested,
     CUpti_BuffersCallbackCompleteFunc funcBufferCompleted);
+
+template <bool CheckSuccess>
+CUptiResult
+activityRegisterTimestampCallback(CUpti_TimestampCallbackFunc funcTimestamp);
 
 template <bool CheckSuccess>
 CUptiResult subscribe(CUpti_SubscriberHandle *subscriber,

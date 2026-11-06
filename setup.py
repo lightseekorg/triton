@@ -39,19 +39,38 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from python.build_helpers import check_env_flag, find_therock_rocm_include_dir, get_base_dir, get_cmake_dir
 
+import warnings
+from setuptools import SetuptoolsDeprecationWarning
+
+warnings.filterwarnings("ignore", category=SetuptoolsDeprecationWarning)
+
+
+def get_git_commit_timestamp():
+    try:
+        timestamp = subprocess.check_output(
+            ["git", "-C", os.path.dirname(os.path.abspath(__file__)), "log", "-1",
+             "--format=%ct"]).strip().decode("utf-8")
+    except Exception:
+        return None
+    return timestamp if timestamp.isdigit() else None
+
+
+# Make wheel ZIP metadata deterministic
+# If SOURCE_DATE_EPOCH is unspecified, then query with git, then fallback to Unix epoch
+os.environ.setdefault("SOURCE_DATE_EPOCH", get_git_commit_timestamp() or "315532800")
+
 
 def is_git_repo() -> bool:
-    """Return True if this file resides at the root of a git repository."""
+    """Return True if this file is inside a git work tree."""
     expected_toplevel = Path(__file__).parent.resolve()
 
     try:
-        stdout: str = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], cwd=expected_toplevel,
+        stdout: str = subprocess.check_output(['git', 'rev-parse', '--is-inside-work-tree'], cwd=expected_toplevel,
                                               stderr=subprocess.DEVNULL).strip().decode('utf-8')
     except subprocess.CalledProcessError:
         return False
-    actual_toplevel = Path(stdout).resolve()
 
-    return actual_toplevel == expected_toplevel
+    return stdout == "true"
 
 
 @dataclass
@@ -136,8 +155,7 @@ def get_build_type():
     elif check_env_flag("TRITON_BUILD_WITH_O1"):
         return "TritonBuildWithO1"
     else:
-        # TODO: change to release when stable enough
-        return "TritonRelBuildWithAsserts"
+        return "Release"
 
 
 def get_env_with_keys(key: list):
@@ -145,6 +163,18 @@ def get_env_with_keys(key: list):
         if k in os.environ:
             return os.environ[k]
     return ""
+
+
+def get_windows_pathmap_flags(base_dir, cmake_dir):
+    paths = [
+        (base_dir, "C:/reproducible/path/triton/source"),
+        (cmake_dir, "C:/reproducible/path/triton/cmake-build"),
+    ]
+    flags = []
+    for source, target in paths:
+        source = os.path.normpath(os.path.realpath(source))
+        flags.append(f"/pathmap:{source}={target}")
+    return " ".join(flags)
 
 
 def is_offline_build() -> bool:
@@ -186,7 +216,10 @@ def update_symlink(link_path, source_path):
 
     print(f"creating symlink: {link_path} -> {source_path}", file=sys.stderr)
     link_path.absolute().parent.mkdir(parents=True, exist_ok=True)  # Ensure link's parent directory exists
-    link_path.symlink_to(source_path.absolute(), target_is_directory=True)
+    try:
+        link_path.symlink_to(source_path.absolute(), target_is_directory=True)
+    except OSError as e:
+        print(f"Warning: Could not create symlink: {e}", file=sys.stderr)
 
 
 # ---- cmake extension ----
@@ -259,9 +292,12 @@ class CMakeBuild(build_ext):
         if therock_include_dir is not None:
             print(f"Using TheRock ROCm headers from {therock_include_dir}", file=sys.stderr)
 
+        bundled_rocm_include_dir = os.path.join(get_base_dir(), "third_party", "amd", "backend", "include")
         if not rocm_include_dir:
-            rocm_include_dir = therock_include_dir or os.path.join(get_base_dir(), "third_party", "amd", "backend",
-                                                                   "include")
+            if not therock_include_dir:
+                rocm_include_dir = bundled_rocm_include_dir
+            else:
+                rocm_include_dir = therock_include_dir + ";" + bundled_rocm_include_dir
         cmake_args += ["-DROCM_INCLUDE_DIR=" + rocm_include_dir]
 
         if not rocprofiler_sdk_include_dir:
@@ -277,6 +313,7 @@ class CMakeBuild(build_ext):
         thirdparty_cmake_args = self.get_nanobind_cmake_args()
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.path)))
         wheeldir = os.path.dirname(extdir)
+        cmake_dir = get_cmake_dir()
 
         # create build directories
         if not os.path.exists(self.build_temp):
@@ -300,6 +337,10 @@ class CMakeBuild(build_ext):
             f"-DTRITON_CACHE_PATH={get_triton_cache_path()}",
             f"-DTRITON_VERSION={TRITON_VERSION}",
         ]
+        cmake_args += [
+            f"-U{name}"
+            for name in ["LLVM_DIR", "LLVM_INCLUDE_DIRS", "LLVM_LIBRARY_DIR", "LLVM_SYSPATH", "MLIR_DIR", "LLD_DIR"]
+        ]
         if lit_dir is not None:
             cmake_args.append("-DLLVM_EXTERNAL_LIT=" + lit_dir)
         cmake_args.extend(thirdparty_cmake_args)
@@ -310,10 +351,19 @@ class CMakeBuild(build_ext):
 
         cmake_args += [f"-DCMAKE_BUILD_TYPE={cfg}"]
         if platform.system() == "Windows":
+            pathmap_flags = get_windows_pathmap_flags(self.base_dir, cmake_dir)
+            reproducible_compile_flags = f"/experimental:deterministic {pathmap_flags}"
             cmake_args += [f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{cfg.upper()}={extdir}"]
+            cmake_args += [f"-DCMAKE_C_FLAGS_INIT={reproducible_compile_flags}"]
+            cmake_args += [f"-DCMAKE_CXX_FLAGS_INIT={reproducible_compile_flags}"]
+            cmake_args += ["-DCMAKE_EXE_LINKER_FLAGS_INIT=/Brepro"]
+            cmake_args += ["-DCMAKE_MODULE_LINKER_FLAGS_INIT=/Brepro"]
+            cmake_args += ["-DCMAKE_SHARED_LINKER_FLAGS_INIT=/Brepro"]
+            cmake_args += ["-DCMAKE_STATIC_LINKER_FLAGS_INIT=/Brepro"]
+
         # This tests for "--jobserver-auth=fifo:" rather than "--jobserver-auth" because ninja
         # only supports a jobserver in fifo mode. In other cases, use a default job count.
-        elif "--jobserver-auth=fifo:" not in os.environ.get("MAKEFLAGS", ""):
+        if "--jobserver-auth=fifo:" not in os.environ.get("MAKEFLAGS", ""):
             max_jobs = os.getenv("MAX_JOBS", str(2 * os.cpu_count()))
             build_args += ['-j' + max_jobs]
 
@@ -348,6 +398,7 @@ class CMakeBuild(build_ext):
 
         # environment variables we will pass through to cmake
         passthrough_args = [
+            "TRITON_BUILD_BINARY",
             "TRITON_BUILD_PROTON",
             "TRITON_BUILD_NVIDIA_GSAN_RUNTIME",
             "TRITON_BUILD_WITH_CCACHE",
@@ -377,13 +428,14 @@ class CMakeBuild(build_ext):
         if is_offline_build():
             # unit test builds fetch googletests from GitHub
             cmake_args += ["-DTRITON_BUILD_UT=OFF"]
+        else:
+            cmake_args += [f"-D{option}={os.getenv(option)}" for option in ["TRITON_BUILD_UT"] if option in os.environ]
 
         cmake_args_append = os.getenv("TRITON_APPEND_CMAKE_ARGS")
         if cmake_args_append is not None:
             cmake_args += shlex.split(cmake_args_append)
 
         env = os.environ.copy()
-        cmake_dir = get_cmake_dir()
         subprocess.check_call(["cmake", self.base_dir] + cmake_args, cwd=cmake_dir, env=env)
         update_symlink(Path(self.base_dir) / "compile_commands.json", cmake_dir / "compile_commands.json")
         subprocess.check_call(["cmake", "--build", "."] + build_args, cwd=cmake_dir)
@@ -556,6 +608,21 @@ def get_git_commit_hash(length=8):
         return ""
 
 
+def get_git_branch_detached_head():
+    try:
+        cmd = ['git', 'for-each-ref', '--contains', 'HEAD', '--format', '%(refname:short)']
+        lines = subprocess.check_output(cmd).decode('utf-8')
+    except Exception:
+        return ""
+
+    for line in lines.splitlines():
+        line = line.strip()
+        if line.startswith("origin/"):
+            line = line[len("origin/"):]
+        return line
+    return ""
+
+
 def get_git_branch():
     try:
         cmd = ['git', 'rev-parse', '--abbrev-ref', 'HEAD']
@@ -567,7 +634,9 @@ def get_git_branch():
 def get_git_version_suffix():
     if not is_git_repo():
         return ""  # Not a git checkout
-    branch = get_git_branch()
+    branch = get_git_branch_detached_head()
+    if not branch:
+        branch = get_git_branch()
     if branch.startswith("release"):
         return ""
     else:
@@ -602,10 +671,10 @@ PYTHON_CLASSIFIERS = [
 CLASSIFIERS = BASE_CLASSIFIERS + PYTHON_CLASSIFIERS
 
 setup(
-    name=os.environ.get("TRITON_WHEEL_NAME", "triton"),
+    name=os.environ.get("TRITON_WHEEL_NAME", "triton-windows"),
     version=TRITON_VERSION,
-    author="Philippe Tillet",
-    author_email="phil@openai.com",
+    author="Philippe Tillet, Dian Wu",
+    author_email="phil@openai.com, woctordho@outlook.com",
     description="A language and compiler for custom Deep Learning operations",
     long_description="",
     license="MIT",
@@ -646,7 +715,7 @@ setup(
     zip_safe=False,
     # for PyPI
     keywords=["Compiler", "Deep Learning"],
-    url="https://github.com/triton-lang/triton/",
+    url="https://github.com/triton-lang/triton-windows",
     python_requires=PYTHON_REQUIRES,
     classifiers=CLASSIFIERS,
 )

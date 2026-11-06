@@ -116,6 +116,16 @@ def sm_arch_from_capability(capability: int):
     return f"sm_{capability}{suffix}"
 
 
+# The file may be accessed in parallel
+def try_remove(path):
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError:
+            import traceback
+            traceback.print_exc()
+
+
 @dataclass(frozen=True)
 class CUDAOptions:
     num_warps: int = 4
@@ -139,7 +149,7 @@ class CUDAOptions:
     launch_cooperative_grid: bool = False
     launch_pdl: bool = False
     clc: bool = False
-    supported_fp8_dtypes: Tuple[str] = ("fp8e5", "fp8e4b15")
+    supported_fp8_dtypes: Tuple[str] = ("fp8e4nv", "fp8e5", "fp8e4b15")
     deprecated_fp8_dot_operand_dtypes: Tuple[str] = ()
     default_dot_input_precision: str = "tf32"
     allowed_dot_input_precisions: Tuple[str] = ("tf32", "tf32x3", "ieee", 'bf16x3', 'bf16x6')
@@ -248,8 +258,6 @@ class CUDABackend(BaseBackend):
 
         if "supported_fp8_dtypes" not in args:
             supported_fp8_dtypes = set(CUDAOptions.supported_fp8_dtypes)
-            if capability >= 89:
-                supported_fp8_dtypes.add("fp8e4nv")
             args["supported_fp8_dtypes"] = tuple(sorted(supported_fp8_dtypes))
 
         if "deprecated_fp8_dot_operand_dtypes" not in args:
@@ -615,20 +623,17 @@ class CUDABackend(BaseBackend):
                 fsrc.name, '-o', fbin
             ]
             try:
-                subprocess.run(ptxas_cmd, check=True, close_fds=False, stderr=flog)
+                # close_fds=True on Windows and False on Linux, see https://github.com/triton-lang/triton/pull/4357
+                # On Windows, both stdout and stderr need to be redirected to flog
+                subprocess.run(ptxas_cmd, check=True, close_fds=True if os.name == 'nt' else False, stdout=flog,
+                               stderr=flog)
                 if knobs.nvidia.dump_ptxas_log:
                     with open(flog.name) as log_file:
                         print(log_file.read())
 
-                if os.path.exists(fsrc.name):
-                    os.remove(fsrc.name)
-                if os.path.exists(flog.name):
-                    os.remove(flog.name)
             except subprocess.CalledProcessError as e:
                 with open(flog.name) as log_file:
                     log = log_file.read()
-                if os.path.exists(flog.name):
-                    os.remove(flog.name)
 
                 if e.returncode == 255:
                     error = 'Internal Triton PTX codegen error'
@@ -652,10 +657,13 @@ please share the reproducer above with Triton project.
 """)
                 raise PTXASError(error)
 
-            with open(fbin, 'rb') as f:
-                cubin = f.read()
-            if os.path.exists(fbin):
-                os.remove(fbin)
+        with open(fbin, 'rb') as f:
+            cubin = f.read()
+        try_remove(fbin)
+
+        # It's better to remove the temp files outside the context managers
+        try_remove(fsrc.name)
+        try_remove(flog.name)
         return cubin
 
     def add_stages(self, stages, options, language):

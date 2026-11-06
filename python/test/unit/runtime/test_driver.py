@@ -33,6 +33,46 @@ from triton.backends.nvidia.compiler import CUDABackend
 from triton.tools.mxfp import MXFP4Tensor, MXScaleTensor
 
 
+@pytest.mark.parametrize("windows", [False, True])
+@pytest.mark.parametrize("location", ["search_path", "HIP_PATH", "ROCM_PATH", "ROCM_HOME"])
+def test_hip_runtime_search_platform_libraries(windows, location, monkeypatch, tmp_path, fresh_knobs):
+    import site
+    from triton.backends.amd import driver as hip_driver
+
+    monkeypatch.setattr(hip_driver, "_is_windows", lambda: windows)
+    monkeypatch.setattr(hip_driver, "_find_already_mmapped_dylib_on_linux", lambda name: None)
+    monkeypatch.setattr(hip_driver, "__file__", str(tmp_path / "backend" / "driver.py"))
+    monkeypatch.setitem(sys.modules, "rocm_sdk", None)
+    monkeypatch.setattr(site, "getsitepackages", lambda: [])
+    monkeypatch.setattr(site, "getusersitepackages", lambda: "")
+    monkeypatch.setattr(site, "ENABLE_USER_SITE", False)
+    fresh_knobs.amd.libhip_path = None
+    for variable in ("PATH", "LD_LIBRARY_PATH", "HIP_PATH", "ROCM_PATH", "ROCM_HOME"):
+        monkeypatch.delenv(variable, raising=False)
+
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError("No ROCm discovery commands installed")
+
+    monkeypatch.setattr(hip_driver.subprocess, "check_output", unavailable)
+    root = tmp_path / "sdk"
+    lib_dir = root / ("bin" if windows else "lib")
+    lib_dir.mkdir(parents=True)
+    lib_name = "amdhip64.dll" if windows else "libamdhip64.so"
+    for suffix in ("", ".6", ".7"):
+        (lib_dir / (lib_name + suffix)).touch()
+    if location == "search_path":
+        monkeypatch.setenv("PATH" if windows else "LD_LIBRARY_PATH",
+                           os.pathsep.join((str(tmp_path / "missing"), str(lib_dir))))
+    else:
+        monkeypatch.setenv(location, str(root))
+
+    hip_driver._get_path_to_hip_runtime_dylib.cache_clear()
+    try:
+        assert hip_driver._get_path_to_hip_runtime_dylib() == str(lib_dir / (lib_name if windows else lib_name + ".7"))
+    finally:
+        hip_driver._get_path_to_hip_runtime_dylib.cache_clear()
+
+
 def test_compile_warmup_only_intercepts_launches():
     launches = []
 
@@ -100,7 +140,7 @@ def test_compile_warmup_coordinator_deduplicates_and_propagates_errors(monkeypat
 
     monkeypatch.setattr(coordinator._dispatcher._executor, "submit", submit)
     for _ in range(2):
-        connection = Client(coordinator.address, family="AF_UNIX")
+        connection = Client(coordinator.address, family=coordinator.family)
         connection.send(("same-specialization", ()))
         connection.close()
     if fails:

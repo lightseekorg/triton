@@ -1,11 +1,11 @@
 import functools
+import logging
 import os
 import subprocess
 import triton
 import ctypes
 import sys
 from triton import knobs
-from triton._C.libtriton.gsan_testing import PER_DEVICE_STATE_STRIDE_BYTES as GSAN_PER_DEVICE_STATE_STRIDE
 from triton._instrumentation import is_enabled
 from triton.runtime.build import compile_module_from_file
 from triton.runtime import _allocation
@@ -19,10 +19,19 @@ from triton.backends.driver import (
     wrap_handle_tensordesc_impl,
 )
 
+logger = logging.getLogger(__name__)
+
 dirname = os.path.dirname(os.path.realpath(__file__))
 include_dirs = [os.path.join(dirname, "include")]
+if os.name == "nt":
+    from triton.windows_utils import find_cuda
+    _, cuda_inc_dirs, _ = find_cuda()
+    include_dirs += cuda_inc_dirs
+
+    libraries = ['cuda']
+else:
+    libraries = ['libcuda.so.1']
 libdevice_dir = os.path.join(dirname, "lib")
-libraries = ['libcuda.so.1']
 PyCUtensorMap = None
 PyKernelArg = None
 ARG_CONSTEXPR = None
@@ -34,6 +43,10 @@ ARG_TUPLE = None
 def libcuda_dirs():
     if env_libcuda_path := knobs.nvidia.libcuda_path:
         return [env_libcuda_path]
+
+    if os.name == "nt":
+        _, _, cuda_lib_dirs = find_cuda()
+        return cuda_lib_dirs
 
     libs = subprocess.check_output(["/sbin/ldconfig", "-p"]).decode(errors="ignore")
     # each line looks like the following:
@@ -60,18 +73,24 @@ def library_dirs():
 
 
 def _cuda_driver_is_active():
-    candidates = ["libcuda.so.1"]
-    try:
-        candidates.extend([os.path.join(path, "libcuda.so.1") for path in libcuda_dirs()])
-    except Exception:
-        pass
+    if os.name == "nt":
+        candidates = ["nvcuda.dll"]
+        load_library = ctypes.WinDLL
+    else:
+        candidates = ["libcuda.so.1"]
+        try:
+            candidates.extend([os.path.join(path, "libcuda.so.1") for path in libcuda_dirs()])
+        except Exception as e:
+            logger.debug("Failed to get libcuda dirs: %s", e)
+        load_library = ctypes.CDLL
 
     libcuda = None
     for candidate in candidates:
         try:
-            libcuda = ctypes.CDLL(candidate)
+            libcuda = load_library(candidate)
             break
-        except OSError:
+        except OSError as e:
+            logger.debug("Failed to load %s: %s", candidate, e)
             continue
 
     if libcuda is None:
@@ -339,6 +358,7 @@ class CudaLauncher(object):
 
             import triton.experimental.gsan._allocator as gsan_allocator
             import triton.experimental.gsan._stream_sync as gsan_stream_sync
+            from triton._C.libtriton.gsan_testing import PER_DEVICE_STATE_STRIDE_BYTES as GSAN_PER_DEVICE_STATE_STRIDE
             device = triton.runtime.driver.active.get_current_device()
             device_rank = gsan_allocator.get_device_rank(device)
             gsan_state_ptr = gsan_allocator.get_global_state_pointer() + device_rank * GSAN_PER_DEVICE_STATE_STRIDE

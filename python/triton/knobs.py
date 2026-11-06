@@ -7,6 +7,7 @@ import re
 import subprocess
 import sysconfig
 import pathlib
+import warnings
 
 from dataclasses import dataclass
 from contextlib import contextmanager
@@ -191,24 +192,43 @@ class NvidiaTool:
             return None
 
 
+@functools.lru_cache
+def find_nvidia_tool(binary: str) -> str:
+    path = os.path.join(os.path.dirname(__file__), "backends", "nvidia", "bin", binary)
+    if os.access(path, os.X_OK):
+        return path
+
+    if os.name == "nt":
+        from triton.windows_utils import find_cuda
+        cuda_bin_path, _, _ = find_cuda()
+        if cuda_bin_path:
+            path = os.path.join(cuda_bin_path, binary)
+            if os.access(path, os.X_OK):
+                return path
+
+    warnings.warn(f"Failed to find executable {binary}")
+    return ""
+
+
 class env_nvidia_tool(env_base[str, NvidiaTool]):
 
     def __init__(self, binary: str) -> None:
         binary += sysconfig.get_config_var("EXE")
         self.binary = binary
-        self.default_path = os.path.join(os.path.dirname(__file__), "backends", "nvidia", "bin", binary)
         super().__init__(f"TRITON_{binary.upper().replace('-', '_')}_PATH")
 
     def get(self) -> NvidiaTool:
         return self.transform(getenv(self.key))
 
     def transform(self, path: str) -> NvidiaTool:
+        default_path = find_nvidia_tool(self.binary)
+
         # We still add default as fallback in case the pointed binary isn't
         # accessible.
         if path is not None:
-            paths = [path, self.default_path]
+            paths = [path, default_path]
         else:
-            paths = [self.default_path]
+            paths = [default_path]
 
         for path in paths:
             if tool := NvidiaTool.from_path(path):

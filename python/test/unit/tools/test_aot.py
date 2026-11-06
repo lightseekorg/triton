@@ -8,8 +8,10 @@ import tempfile
 
 import numpy as np
 
+import torch  # noqa: F401 # TheRock ROCm requires importing torch before triton
 import triton
 from triton.backends.compiler import GPUTarget
+from triton.runtime.build import is_clang, is_clang_cl, is_msvc, is_tcc, _find_compiler
 from triton._internal_testing import is_cuda, is_hip
 
 if is_cuda():
@@ -19,14 +21,67 @@ if is_cuda():
         return ["cuda"]
 
 elif is_hip():
-    from triton.backends.amd.driver import include_dirs, _get_path_to_hip_runtime_dylib
+    from triton.backends.amd.driver import _rocm_root, include_dirs
+
+    if os.name == "nt":
+        import ctypes
+        from triton.windows_utils import find_hip
+
+        _rocm_bin = os.path.join(_rocm_root, "bin")
+        _rocm_lib = os.path.join(_rocm_root, "lib")
+    else:
+        from triton.backends.amd.driver import _get_path_to_hip_runtime_dylib
 
     def library_dirs():
-        hip_runtime_dylib = _get_path_to_hip_runtime_dylib()
-        return [os.path.dirname(hip_runtime_dylib)]
+        if os.name == "nt":
+            _, _, lib_dirs = find_hip()
+            return [_rocm_lib] + lib_dirs
+        else:
+            hip_runtime_dylib = _get_path_to_hip_runtime_dylib()
+            return [os.path.dirname(hip_runtime_dylib)]
 
     def library_names():
-        return [_get_path_to_hip_runtime_dylib()]
+        if os.name == "nt":
+            # Windows links against the version-independent import library.
+            return ["amdhip64"]
+        else:
+            return [_get_path_to_hip_runtime_dylib()]
+
+
+def _run_aot_executable(command, **kwargs):
+    if os.name == "nt" and is_hip():
+        set_dll_directory = ctypes.WinDLL("kernel32", use_last_error=True).SetDllDirectoryW
+        set_dll_directory.argtypes = [ctypes.c_wchar_p]
+        set_dll_directory.restype = ctypes.c_bool
+        if not set_dll_directory(_rocm_bin):
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            return subprocess.run(command, **kwargs)
+        finally:
+            set_dll_directory(None)
+    return subprocess.run(command, **kwargs)
+
+
+def _find_lib():
+    """Find a librarian tool. On HIP/Windows, uses llvm-lib from the ROCm SDK."""
+    if os.name == "nt" and is_hip():
+        _, _, lib_dirs = find_hip()
+        if lib_dirs:
+            llvm_lib = os.path.join(os.path.dirname(lib_dirs[0]), "lib", "llvm", "bin", "llvm-lib.exe")
+            if os.path.exists(llvm_lib):
+                return llvm_lib
+    return "lib"
+
+
+def _make_run_env(tmp_dir):
+    """Create environment for running AOT test executables."""
+    env = os.environ.copy()
+    if os.name == "nt":
+        extra_dirs = [tmp_dir] + library_dirs()
+        env["PATH"] = ";".join(extra_dirs) + ";" + env.get("PATH", "")
+    else:
+        env["LD_LIBRARY_PATH"] = tmp_dir
+    return env
 
 
 kernel_utils_src = """
@@ -152,18 +207,47 @@ static void read_csv_to_buffer(char *filename, int16_t *buffer, int size) {
 
 
 def gen_kernel_library(dir, libname):
-    c_files = glob.glob(os.path.join(dir, "*.c"))
-    subprocess.run(
-        ["gcc"] + c_files + ["-I", include_dirs[0], "-c", "-fPIC"],
-        check=True,
-        cwd=dir,
-    )
-    o_files = glob.glob(os.path.join(dir, "*.o"))
+    cc = _find_compiler("c")
+    if is_msvc(cc) or is_clang_cl(cc):
+        if libname.startswith("lib"):
+            libname = libname[3:]
+        libname = libname.replace(".so", ".lib")
 
-    command = ["gcc", *o_files, "-shared", "-o", libname]
-    for lib_dir in library_dirs():
-        command.extend(["-L", lib_dir])
-    subprocess.run(command, check=True, cwd=dir)
+        c_files = glob.glob(os.path.join(dir, "*.c"))
+        command = [cc, *c_files, "/nologo", "/utf-8", "/c", "/std:c11"]
+        command += [f"/I{x}" for x in include_dirs if x is not None]
+        subprocess.run(command, check=True, cwd=dir)
+
+        lib_tool = _find_lib()
+        obj_files = glob.glob(os.path.join(dir, "*.obj"))
+        command = [lib_tool, *obj_files, "/nologo", f"/OUT:{libname}"]
+        # library_dirs are handled in _make_run_env
+        subprocess.run(command, check=True, cwd=dir)
+    elif is_tcc(cc):
+        libname = libname.replace(".so", ".a")
+
+        c_files = glob.glob(os.path.join(dir, "*.c"))
+        command = [cc, *c_files, "-c", "-std=c11", "-fPIC"]
+        command += [f"-I{x}" for x in include_dirs if x is not None]
+        subprocess.run(command, check=True, cwd=dir)
+
+        o_files = glob.glob(os.path.join(dir, "*.o"))
+        command = [cc, "-ar", "rcs", libname, *o_files]
+        # library_dirs are handled in _make_run_env
+        subprocess.run(command, check=True, cwd=dir)
+    else:
+        c_files = glob.glob(os.path.join(dir, "*.c"))
+        command = [cc, *c_files, "-c", "-std=c11"]
+        if not (os.name == "nt" and is_clang(cc)):
+            # Clang does not support -fPIC on Windows
+            command += ["-fPIC"]
+        command += [f"-I{x}" for x in include_dirs if x is not None]
+        subprocess.run(command, check=True, cwd=dir)
+
+        o_files = glob.glob(os.path.join(dir, "*.o"))
+        command = [cc, *o_files, "-shared", "-o", libname]
+        command += [f"-L{x}" for x in library_dirs()]
+        subprocess.run(command, check=True, cwd=dir)
 
 
 def gen_test_bin(dir, M, N, K, exe="test", algo_id=0):
@@ -188,8 +272,8 @@ int main(int argc, char **argv) {{
   load_matmul_fp16();
 
   // initialize input data
-  int16_t hA[M*K];
-  int16_t hB[K*N];
+  int16_t hA[{M * K}];
+  int16_t hB[{K * N}];
   memset(hA, 0, M*K*2);
   memset(hB, 0, K*N*2);
   read_csv_to_buffer(argv[1], hA, M*K);
@@ -209,7 +293,7 @@ int main(int argc, char **argv) {{
   assert(ret == 0);
 
   // read data
-  int32_t hC[M*N];
+  int32_t hC[{M * N}];
   memset(hC, 0, M*N*4);
   cuMemcpyDtoH(hC, C, M*N*4);
   write_buffer_to_csv(argv[3], hC, M*N);
@@ -284,19 +368,31 @@ def build_test_bin(dir, src, src_name, exe):
     with open(os.path.join(dir, src_name), "w") as file:
         file.write(src)
 
-    command = ["gcc", src_name]
-    for inc_dir in include_dirs:
-        command.extend(["-I", inc_dir])
-    for lib_dir in library_dirs():
-        command.extend(["-L", lib_dir])
-        if is_hip():
-            command.append(f"-Wl,-rpath,{lib_dir}")
-    for lib_name in library_names():
-        if os.path.isabs(lib_name):
-            command.append(lib_name)
-        else:
-            command.extend(["-l", lib_name])
-    command.extend(["-L", dir, "-l", "kernel", "-o", exe])
+    if os.name == "nt":
+        exe += ".exe"
+
+    cc = _find_compiler("c")
+    if is_msvc(cc) or is_clang_cl(cc):
+        command = [cc, src_name, "/nologo", "/utf-8", "/std:c11"]
+        command += [f"/I{x}" for x in include_dirs if x is not None]
+        command += ["/link"]
+        command += [f"/LIBPATH:{x}" for x in library_dirs()]
+        command += [f"{x}.lib" for x in library_names()]
+        command += [f"/LIBPATH:{dir}", "kernel.lib", f"/OUT:{exe}"]
+    else:
+        command = [cc, src_name, "-std=c11"]
+        command += [f"-I{x}" for x in include_dirs if x is not None]
+        for lib_dir in library_dirs():
+            command += [f"-L{lib_dir}"]
+            if is_hip():
+                command += [f"-Wl,-rpath,{lib_dir}"]
+        for lib_name in library_names():
+            if os.path.isabs(lib_name):
+                command.append(lib_name)
+            else:
+                command += [f"-l{lib_name}"]
+        command += ["-L", dir, "-l", "kernel", "-o", exe]
+
     subprocess.run(command, check=True, cwd=dir)
 
 
@@ -315,13 +411,19 @@ def write_triton_kernels(dir, src, util_src):
 def _compile_kernel(dir, signature, kernel_name, out_name, out_path, num_warps, grid, kernel_path, target=None):
     compiler_path = os.path.join(triton.tools.__path__[0], "compile.py")
     cmd_args = [
-        sys.executable, compiler_path, "-n", kernel_name, "--signature", signature, "--out-name", out_name, "-o",
-        out_path, "-w",
+        "-n", kernel_name, "--signature", signature, "--out-name", out_name, "-o", out_path, "-w",
         str(num_warps), "-g", grid
     ]
     if target:
         cmd_args.extend(["-t", "%s:%s:%i" % (target.backend, target.arch, target.warp_size)])
     cmd_args.append(kernel_path)
+
+    if os.name == "nt" and is_hip():
+        # TheRock ROCm requires importing torch before triton
+        wrapper = "import runpy, sys; import torch; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+        cmd_args = [sys.executable, "-c", wrapper, compiler_path] + cmd_args
+    else:
+        cmd_args = [sys.executable, compiler_path] + cmd_args
     subprocess.run(cmd_args, check=True, cwd=dir)
 
 
@@ -418,6 +520,8 @@ def test_linker_rejects_invalid_algo_id():
     with tempfile.TemporaryDirectory() as tmp_dir:
         c_path = os.path.join(tmp_dir, "test_linker_algo_id_bounds.c")
         exe_path = os.path.join(tmp_dir, "test_linker_algo_id_bounds")
+        if os.name == "nt":
+            exe_path += ".exe"
         with open(c_path, "w") as fp:
             fp.write(f"""
 #include <stdio.h>
@@ -457,7 +561,12 @@ int main(void) {{
 }}
 """)
 
-        subprocess.run(["gcc", "-std=c99", "-DNDEBUG", c_path, "-o", exe_path], check=True)
+        cc = _find_compiler("c")
+        if is_msvc(cc) or is_clang_cl(cc):
+            command = [cc, c_path, "/nologo", "/utf-8", "/std:c11", "/DNDEBUG", "/link", f"/OUT:{exe_path}"]
+        else:
+            command = [cc, c_path, "-std=c11", "-DNDEBUG", "-o", exe_path]
+        subprocess.run(command, check=True, cwd=tmp_dir)
         subprocess.run([exe_path], check=True)
 
 
@@ -485,9 +594,13 @@ def test_compile_link_matmul_no_specialization():
         a, b, a_path, b_path, c_path = generate_matmul_test_data(tmp_dir, M, N, K)
 
         # run test case
-        env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = tmp_dir
-        subprocess.run(["./test", a_path, b_path, c_path], env=env, check=True, cwd=tmp_dir)
+        env = _make_run_env(tmp_dir)
+        if os.name == "nt":
+            exe = "test.exe"
+        else:
+            exe = "test"
+        exe = os.path.join(tmp_dir, exe)
+        _run_aot_executable([exe, a_path, b_path, c_path], env=env, check=True, cwd=tmp_dir)
 
         # read data and compare against reference
         c = np.genfromtxt(c_path, delimiter=",", dtype=np.int32)
@@ -518,9 +631,13 @@ def test_compile_link_matmul():
         a, b, a_path, b_path, c_path = generate_matmul_test_data(tmp_dir, M, N, K)
 
         # run test case
-        env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = tmp_dir
-        subprocess.run(["./test", a_path, b_path, c_path], env=env, check=True, cwd=tmp_dir)
+        env = _make_run_env(tmp_dir)
+        if os.name == "nt":
+            exe = "test.exe"
+        else:
+            exe = "test"
+        exe = os.path.join(tmp_dir, exe)
+        _run_aot_executable([exe, a_path, b_path, c_path], env=env, check=True, cwd=tmp_dir)
 
         # read data and compare against reference
         c = np.genfromtxt(c_path, delimiter=",", dtype=np.int32)
@@ -552,10 +669,14 @@ def test_launcher_has_no_available_kernel():
         a, b, a_path, b_path, c_path = generate_matmul_test_data(tmp_dir, M, N, K)
 
         # run test case
-        env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = tmp_dir
-        result = subprocess.run(
-            ["./test", a_path, b_path, c_path],
+        env = _make_run_env(tmp_dir)
+        if os.name == "nt":
+            exe = "test.exe"
+        else:
+            exe = "test"
+        exe = os.path.join(tmp_dir, exe)
+        result = _run_aot_executable(
+            [exe, a_path, b_path, c_path],
             env=env,
             cwd=tmp_dir,
             capture_output=True,
@@ -563,7 +684,15 @@ def test_launcher_has_no_available_kernel():
         )
 
         # It should fail since the launcher requires all the strides be 1 while they are not.
-        assert result.returncode == -6
+        cc = _find_compiler("c")
+        if is_msvc(cc) or is_clang_cl(cc):
+            assert result.returncode == 0xc0000409
+        elif os.name == "nt":
+            # MSVCRT abort
+            assert result.returncode == 3
+        else:
+            # Linux abort
+            assert result.returncode == -6
         assert "kernel launch failed" in result.stderr
 
 
@@ -600,10 +729,14 @@ def test_compile_link_autotune_matmul():
             test_name = f"test_{algo_id}"
             gen_test_bin(tmp_dir, M, N, K, exe=test_name, algo_id=algo_id)
 
-            env = os.environ.copy()
-            env["LD_LIBRARY_PATH"] = tmp_dir
-            subprocess.run(
-                [f"./{test_name}", a_path, b_path, c_path],
+            env = _make_run_env(tmp_dir)
+            if os.name == "nt":
+                exe = f"{test_name}.exe"
+            else:
+                exe = test_name
+            exe = os.path.join(tmp_dir, exe)
+            _run_aot_executable(
+                [exe, a_path, b_path, c_path],
                 check=True,
                 cwd=tmp_dir,
                 env=env,
@@ -775,6 +908,8 @@ def test_compile_link_scalar_float(dtype, alpha):
         gen_kernel_library(tmp_dir, "libkernel.so")
         gen_scalar_float_test_bin(tmp_dir, block, alpha, exe=exe)
 
-        env = os.environ.copy()
-        env["LD_LIBRARY_PATH"] = tmp_dir
-        subprocess.run([f"./{exe}"], env=env, check=True, cwd=tmp_dir)
+        env = _make_run_env(tmp_dir)
+        if os.name == "nt":
+            exe = f"{exe}.exe"
+        exe = os.path.join(tmp_dir, exe)
+        _run_aot_executable([exe], env=env, check=True, cwd=tmp_dir)

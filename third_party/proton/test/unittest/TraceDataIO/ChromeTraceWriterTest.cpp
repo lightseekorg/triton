@@ -1,16 +1,14 @@
 #include "TraceDataIO/EntryDecoder.h"
 #include "TraceDataIO/TraceWriter.h"
 #include "nlohmann/json.hpp"
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/FileSystem.h"
 #include <filesystem>
 #include <fstream>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <system_error>
-#include <unistd.h>
 #include <vector>
 
 using json = nlohmann::json;
@@ -20,13 +18,15 @@ class ChromeTraceWriterTest : public ::testing::Test {
 public:
   void SetUp() override {
     // CTest can run individual cases alongside the whole test executable.
-    std::string pattern =
-        (std::filesystem::temp_directory_path() / "proton-chrome-trace-XXXXXX")
+    std::string prefix =
+        (std::filesystem::temp_directory_path() / "proton-chrome-trace")
             .string();
-    char *created = ::mkdtemp(pattern.data());
-    ASSERT_NE(created, nullptr) << std::strerror(errno);
+    llvm::SmallString<128> created;
+    std::error_code error =
+        llvm::sys::fs::createUniqueDirectory(prefix, created);
+    ASSERT_FALSE(error) << error.message();
 
-    chromeTraceDir = created;
+    chromeTraceDir = created.c_str();
     chromeTracePath = (chromeTraceDir / "chrome_trace.json").string();
   }
 

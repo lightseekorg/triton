@@ -18,10 +18,11 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # Triton configuration
 ################################################################################
 
+option(TRITON_BUILD_BINARY "Build C++ Triton binaries" ON)
 option(TRITON_BUILD_PYTHON_MODULE "Build Python Triton bindings" OFF)
 option(TRITON_BUILD_PROTON "Build the Triton Proton profiler" ON)
 option(TRITON_BUILD_NVIDIA_GSAN_RUNTIME
-       "Build the CUDA/NVPTX GSan device runtime for the NVIDIA backend" ON)
+       "Build the CUDA/NVPTX GSan device runtime for the NVIDIA backend" OFF)
 option(TRITON_STABLE_ABI "Build with Python Stable ABI (abi3) for Python 3.12+" OFF)
 option(TRITON_BUILD_UT "Build C++ Triton Unit Tests" ON)
 option(TRITON_BUILD_WITH_CCACHE "Build with ccache (if available)" ON)
@@ -193,11 +194,10 @@ if(NOT MSVC)
   set(CMAKE_C_FLAGS_TRITONBUILDWITHO1 "-O1")
   set(CMAKE_CXX_FLAGS_TRITONBUILDWITHO1 "-O1")
 else()
-  set(CMAKE_C_FLAGS_TRITONRELBUILDWITHASSERTS "/Zi /RTC1 /bigobj /Zc:preprocessor /permissive-")
-  set(CMAKE_CXX_FLAGS_TRITONRELBUILDWITHASSERTS "/Zi /RTC1 /bigobj /Zc:preprocessor /permissive-")
-  set(CMAKE_EXE_LINKER_FLAGS_TRITONRELBUILDWITHASSERTS "/debug:fastlink /INCREMENTAL")
-  set(CMAKE_MODULE_LINKER_FLAGS_TRITONRELBUILDWITHASSERTS "/debug:fastlink /INCREMENTAL")
-  set(CMAKE_SHARED_LINKER_FLAGS_TRITONRELBUILDWITHASSERTS "/debug:fastlink /INCREMENTAL")
+  set(CMAKE_C_FLAGS_TRITONRELBUILDWITHASSERTS "/Zi /RTC1")
+  set(CMAKE_CXX_FLAGS_TRITONRELBUILDWITHASSERTS "/Zi /RTC1")
+  set(CMAKE_C_FLAGS_TRITONBUILDWITHO1 "/O1")
+  set(CMAKE_CXX_FLAGS_TRITONBUILDWITHO1 "/O1")
 endif()
 
 # Default build type
@@ -218,7 +218,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(NOT MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__STDC_FORMAT_MACROS  -fPIC")
 else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__STDC_FORMAT_MACROS")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /nologo /bigobj /Zc:__STDC__ /Zc:preprocessor /permissive- /utf-8")
 endif()
 
 ################################################################################
@@ -299,7 +299,7 @@ if(NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-declarations")
   endif()
 else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4624 /wd4715 /wd4530")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX /wd4244 /wd4267 /wd4293 /wd4624")
 endif()
 
 include_directories(".")
@@ -321,17 +321,28 @@ if (NOT WIN32 AND NOT APPLE AND NOT BSD)
   link_libraries(stdc++fs)
 endif()
 
+if(WIN32)
+  add_subdirectory(third_party/dlfcn-win32)
+  include_directories(${PROJECT_SOURCE_DIR}/third_party/dlfcn-win32)
+endif()
+
 ################################################################################
 # Python module
 ################################################################################
-
 if(TRITON_BUILD_PYTHON_MODULE)
   message(STATUS "Adding Python module")
   set(PYTHON_SRC_PATH ${CMAKE_CURRENT_SOURCE_DIR}/python/src)
   include_directories(${PYTHON_SRC_PATH})
 
   # Python Interpreter is used to run lit tests
-  find_package(Python3 REQUIRED COMPONENTS Development.Module Interpreter)
+  if(TRITON_STABLE_ABI)
+    # Find Python3::SABIModule and forward it to Python3::Module
+    find_package(Python3 REQUIRED COMPONENTS Development.SABIModule Interpreter)
+    add_library(Python3::Module INTERFACE IMPORTED)
+    target_link_libraries(Python3::Module INTERFACE Python3::SABIModule)
+  else()
+    find_package(Python3 REQUIRED COMPONENTS Development.Module Interpreter)
+  endif()
   # nanobind expects find_package(Python) which sets Python::Module target
   # and Python_* variables. Triton uses find_package(Python3) instead.
   # Bridge the two by aliasing the target and forwarding variables.
@@ -340,12 +351,12 @@ if(TRITON_BUILD_PYTHON_MODULE)
   endif()
   if(NOT TARGET Python::Module)
     add_library(Python::Module ALIAS Python3::Module)
-    set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
-    set(Python_INCLUDE_DIRS "${Python3_INCLUDE_DIRS}")
-    set(Python_SOABI "${Python3_SOABI}")
-    set(Python_VERSION "${Python3_VERSION}")
-    set(Python_INTERPRETER_ID "${Python3_INTERPRETER_ID}")
   endif()
+  set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
+  set(Python_INCLUDE_DIRS "${Python3_INCLUDE_DIRS}")
+  set(Python_SOABI "${Python3_SOABI}")
+  set(Python_VERSION "${Python3_VERSION}")
+  set(Python_INTERPRETER_ID "${Python3_INTERPRETER_ID}")
 
   find_package(nanobind CONFIG REQUIRED HINTS "${Python3_SITELIB}")
   nanobind_build_library(nanobind-static)
@@ -429,16 +440,27 @@ if(TRITON_BUILD_PYTHON_MODULE)
 
   set(TRITON_BACKENDS_TUPLE "(${TRITON_BACKENDS_TUPLE})")
   add_compile_definitions(TRITON_BACKENDS_TUPLE=${TRITON_BACKENDS_TUPLE})
-  add_library(triton SHARED ${PYTHON_SRC_PATH}/main.cc
+  set(TRITON_PYTHON_BINDING_SRCS
+                  ${PYTHON_SRC_PATH}/main.cc
                   ${PYTHON_SRC_PATH}/ir.cc
                   ${PYTHON_SRC_PATH}/gluon_ir.cc
-                  ${CMAKE_CURRENT_SOURCE_DIR}/python/triton/experimental/gsan/src/gsan_testing.cc
-                  ${CMAKE_CURRENT_SOURCE_DIR}/python/triton/experimental/gsan/src/gsan_profile.cc
                   ${PYTHON_SRC_PATH}/linear_layout.cc
                   ${PYTHON_SRC_PATH}/passes.cc
                   ${PYTHON_SRC_PATH}/interpreter.cc
                   ${PYTHON_SRC_PATH}/llvm.cc
                   ${PYTHON_SRC_PATH}/specialize.cc)
+  if(TRITON_BUILD_NVIDIA_GSAN_RUNTIME)
+    list(APPEND TRITON_PYTHON_BINDING_SRCS
+         ${CMAKE_CURRENT_SOURCE_DIR}/python/triton/experimental/gsan/src/gsan_testing.cc
+         ${CMAKE_CURRENT_SOURCE_DIR}/python/triton/experimental/gsan/src/gsan_profile.cc)
+  endif()
+  add_library(triton SHARED ${TRITON_PYTHON_BINDING_SRCS})
+
+  if(TRITON_BUILD_NVIDIA_GSAN_RUNTIME)
+    target_compile_definitions(triton PRIVATE TRITON_BUILD_NVIDIA_GSAN_RUNTIME=1)
+  else()
+    target_compile_definitions(triton PRIVATE TRITON_BUILD_NVIDIA_GSAN_RUNTIME=0)
+  endif()
 
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(triton PRIVATE -Wno-array-bounds)
@@ -453,7 +475,7 @@ if(TRITON_BUILD_PYTHON_MODULE)
   set_target_properties(triton PROPERTIES INTERFACE_LINK_LIBRARIES "")
 
   if(WIN32)
-    target_link_libraries(triton PRIVATE ${CMAKE_DL_LIBS})
+    target_link_libraries(triton PRIVATE ${CMAKE_DL_LIBS} dlfcn)
     set_target_properties(triton PROPERTIES SUFFIX ".pyd")
     set_target_properties(triton PROPERTIES PREFIX "lib")
   else()
@@ -497,10 +519,19 @@ if(TRITON_BUILD_PYTHON_MODULE)
       message(FATAL_ERROR "TRITON_WHEEL_DIR must be set.")
   endif()
 
-  configure_file(
-    "${LLVM_SYSPATH}/bin/FileCheck"
-    "${TRITON_WHEEL_DIR}/FileCheck"
-    COPYONLY)
+  if(TRITON_BUILD_UT)
+    if(WIN32)
+      configure_file(
+        "${LLVM_SYSPATH}/bin/FileCheck.exe"
+        "${TRITON_WHEEL_DIR}/FileCheck.exe"
+        COPYONLY)
+    else()
+      configure_file(
+        "${LLVM_SYSPATH}/bin/FileCheck"
+        "${TRITON_WHEEL_DIR}/FileCheck"
+        COPYONLY)
+    endif()
+  endif()
 
   # Install Triton headers and TableGen definitions into the wheel staging
   # directory so that downstream projects can use Triton as a C++ library
@@ -551,10 +582,13 @@ endif()
 find_package(Threads REQUIRED)
 
 add_subdirectory(third_party/f2reduce)
-add_subdirectory(bin)
-add_subdirectory(test)
+
+if(TRITON_BUILD_BINARY)
+  add_subdirectory(bin)
+endif()
 
 if(TRITON_BUILD_UT)
+  add_subdirectory(test)
   add_subdirectory(unittest)
   # This target runs all the unit tests.
   add_custom_target(check-triton-unit-tests

@@ -38,6 +38,7 @@ from triton._internal_testing import (
     is_hip_cdna2,
     is_hip_cdna3,
     is_hip_cdna4,
+    is_hip_rdna2,
     is_hip_rdna3,
     is_hip_rdna4m,
     is_hip_rdna4,
@@ -135,8 +136,6 @@ def check_type_supported(dtype, device):
         cc = torch.cuda.get_device_capability()
         if cc[0] < 8 and (dtype is tl.bfloat16 or dtype == "bfloat16" or dtype is torch.bfloat16):
             pytest.skip("bfloat16 is only supported on NVGPU with cc >= 80")
-        if cc[0] < 9 and dtype in {tl.float8e4nv, "float8e4nv", "float8_e4m3fn"}:
-            pytest.skip("float8e4nv is only supported on NVGPU with cc >= 90")
     if is_interpreter():
         if dtype in [tl.bfloat16, "bfloat16", torch.bfloat16]:
             pytest.skip("bfloat16 is not supported in the interpreter")
@@ -1558,8 +1557,6 @@ def test_abs_fp8(in_dtype, device):
         cc = torch.cuda.get_device_capability()
         if in_dtype == tl.float8e4b15 and cc >= (9, 0):
             pytest.skip("float8e4b15 not supported on CUDA >= 9.0")
-        if in_dtype == tl.float8e4nv and cc < (8, 9):
-            pytest.skip("float8e4nv not supported on CUDA < 8.9")
         if in_dtype in (tl.float8e4b8, tl.float8e5b16):
             pytest.skip("float8e4b8/float8e5b16 not supported on CUDA")
 
@@ -2523,6 +2520,7 @@ def test_load_scope_sem_coop_grid_cta_not_one(device):
 
 
 @pytest.mark.interpreter
+@pytest.mark.skipif(is_hip(), reason="Cooperative launch is currently not supported on HIP")
 def test_load_scope_sem_coop_grid_cta_one(device):
 
     @triton.jit
@@ -4603,8 +4601,6 @@ def test_dot(M, N, K, num_warps, col_a, col_b, epilogue, input_precision, in_dty
                 if out_dtype == 'float16':
                     # TODO: support out_dtype=float16 for tl.dot on V100
                     pytest.skip("Only test out_dtype=float16 on devices with sm >=80")
-            if capability[0] < 9 and in_dtype == 'float8e4nv':
-                pytest.skip("float8e4nv not supported on sm <= 80")
             if in_dtype == 'float64' and input_precision != 'ieee':
                 pytest.skip("Only IEEE precision is supported for float64 dot")
 
@@ -5333,8 +5329,9 @@ def test_dot3d(B, num_warps, M, N, K, BLOCK_M, BLOCK_N, in_dtype_str, out_dtype_
     if in_dtype_str == 'int8':
         out = numpy_random((B, M, N), dtype_str='int32', rs=rs)
     else:
-        if is_hip() and (BLOCK_M < 16 or BLOCK_N < 16) and out_dtype_str == 'float16':
+        if is_hip() and (BLOCK_M < 16 or BLOCK_N < 16 or is_hip_rdna2()) and out_dtype_str == 'float16':
             # float16 accumulator in FMA dot loose precision too fast
+            # RDNA2 has no matrix cores, so it always uses FMA dot
             x *= 0.1
             y *= 0.1
         out = numpy_random((B, M, N), dtype_str=out_dtype_str, rs=rs)
@@ -8156,6 +8153,12 @@ def test_gather(src_shape, indices_shape, axis, device):
         # This could be solved by reducing vectorization in general swizzling algorithm.
         # We will do this if any relevant workload suffers from large LDS consumption of the algorithm.
         pytest.skip('Not enough LDS.')
+    if src_shape == [128, 64] and indices_shape == [256, 64] and not is_interpreter():
+        shared_mem_accum = 131072
+        shared_mem_avail = triton.runtime.driver.active.utils.get_device_properties(
+            triton.runtime.driver.active.get_current_device())["max_shared_mem"]
+        if shared_mem_accum > shared_mem_avail:
+            pytest.skip("Skipped due to insufficient shared memory on this GPU.")
 
     def triton_gather(src: torch.Tensor, axis: int, indices: torch.Tensor):
         output = torch.empty(indices.shape, dtype=src.dtype, device=src.device)
@@ -8229,8 +8232,7 @@ def test_zero_strided_tensors(device):
 
     a, b, c = x.shape
     grid = (a, b, c)
-    with torch.cuda.device(x.device.index):
-        _simple_add[grid](x, x.stride(0), x.stride(1))
+    _simple_add[grid](x, x.stride(0), x.stride(1))
 
     assert torch.allclose(x, torch.ones_like(x) * c_dim)
 
